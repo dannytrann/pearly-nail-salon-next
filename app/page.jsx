@@ -243,7 +243,7 @@ function ServiceItem({ service }) {
           <span>{service.duration} mins</span>
         </div>
         <Link
-          href="/group-booking"
+          href={`/group-booking?serviceId=${service.id}`}
           className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary-dark transition-colors tracking-wide group/link"
         >
           Book
