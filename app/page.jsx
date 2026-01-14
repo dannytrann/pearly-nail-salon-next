@@ -63,7 +63,7 @@ export default function ServiceMenu() {
   }
 
   // Define preferred category order
-  const categoryOrder = ["Kid's (12 yrs old n' Under)", "Manicure (hands)", "Pedicure (Feet)", "Waxing", "Other Services"]
+  const categoryOrder = ["Waxing", "Manicure (hands)", "Pedicure (Feet)", "Kid's (12 yrs old n' Under)", "Other Services"]
   const sortedCategories = Object.entries(categories).sort((a, b) => {
     const indexA = categoryOrder.indexOf(a[0])
     const indexB = categoryOrder.indexOf(b[0])
