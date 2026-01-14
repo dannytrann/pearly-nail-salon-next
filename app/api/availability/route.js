@@ -83,7 +83,40 @@ async function fetchSquareAvailability(date, guestData) {
 
     console.log('Square searchAvailability request:', JSON.stringify(searchRequest, null, 2))
 
-    const response = await client.bookings.searchAvailability(searchRequest)
+    let response
+    try {
+      response = await client.bookings.searchAvailability(searchRequest)
+    } catch (searchError) {
+      // Check if it's a "not bookable" error
+      if (searchError.body?.errors?.[0]?.detail?.includes('not bookable')) {
+        const errorField = searchError.body.errors[0].field || ''
+        const segmentMatch = errorField.match(/segment_filters\[(\d+)\]/)
+        const segmentIndex = segmentMatch ? parseInt(segmentMatch[1]) : -1
+
+        // Find which service caused the error
+        let problemService = 'Unknown service'
+        if (segmentIndex >= 0 && segmentIndex < serviceVariationIds.length) {
+          // Try to find the service name from guest data
+          if (Array.isArray(guestData)) {
+            let serviceCount = 0
+            for (const guest of guestData) {
+              if (guest.services) {
+                for (const service of guest.services) {
+                  if (serviceCount === segmentIndex) {
+                    problemService = service.name || service.id
+                    break
+                  }
+                  serviceCount++
+                }
+              }
+            }
+          }
+        }
+
+        throw new Error(`"${problemService}" is not available for online booking. Please select a different service or contact the salon directly.`)
+      }
+      throw searchError
+    }
 
     console.log('Square searchAvailability found', response.availabilities?.length || 0, 'availabilities')
 
