@@ -41,7 +41,9 @@ async function fetchSquareTeamMembers() {
 // Add service names here that shouldn't appear in online booking
 const EXCLUDED_SERVICES = [
   'Cuticle Trim',
-  // Add more service names here as needed
+  'Gel Overlay 🙌',
+  'Nail Trim *fingers',
+  'Nail Trim *toes 🦶',
 ]
 
 // Fetch services from Square Catalog
