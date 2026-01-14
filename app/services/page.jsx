@@ -77,8 +77,10 @@ export default function ServicesPage() {
       const nextGuest = guests[currentGuestIndex + 1]
       setSelectedServices(nextGuest?.services || [])
       setSelectedTechnician(nextGuest?.technician || null)
-      // Scroll to top for next guest
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      // Scroll to top for next guest (after state update)
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 100)
     } else {
       router.push('/review')
     }
@@ -90,8 +92,10 @@ export default function ServicesPage() {
       const prevGuest = guests[currentGuestIndex - 1]
       setSelectedServices(prevGuest?.services || [])
       setSelectedTechnician(prevGuest?.technician || null)
-      // Scroll to top when going back
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      // Scroll to top when going back (after state update)
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 100)
     } else {
       router.push('/group-booking')
     }
