@@ -2,110 +2,114 @@ import { NextResponse } from 'next/server'
 import { timeSlots } from '@/lib/mockData'
 import { getSquareClient, getLocationId } from '@/lib/squareClient'
 
-// Fetch availability from Square Bookings - checks ALL selected technicians
-async function fetchSquareAvailability(date, guestData, allTimeSlots) {
+// Use Square's searchAvailability API to get actual technician availability
+// This properly checks team member work schedules, not just existing bookings
+async function fetchSquareAvailability(date, guestData) {
   try {
     const client = getSquareClient()
     const locationId = getLocationId()
 
-    // Convert date to ISO format for Square API
-    const startDate = new Date(date + 'T00:00:00')
-    const endDate = new Date(date + 'T23:59:59')
-
-    // Get all bookings for the day
-    const response = await client.bookings.list({
-      locationId: locationId,
-      startAtMin: startDate.toISOString(),
-      startAtMax: endDate.toISOString()
-    })
-
-    // Build a map of technician -> booked time slots
-    const technicianBookings = new Map()
-
-    if (response.bookings) {
-      for (const booking of response.bookings) {
-        if (booking.startAt && booking.appointmentSegments) {
-          const bookingTime = new Date(booking.startAt)
-          const timeString = bookingTime.toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-          })
-
-          // Get duration to block subsequent slots
-          for (const segment of booking.appointmentSegments) {
-            const techId = segment.teamMemberId
-            if (techId) {
-              if (!technicianBookings.has(techId)) {
-                technicianBookings.set(techId, new Set())
-              }
-
-              // Block the start time and calculate blocked duration
-              const duration = segment.durationMinutes || 30
-              const blockedSlots = getBlockedTimeSlots(timeString, duration, allTimeSlots)
-              blockedSlots.forEach(slot => technicianBookings.get(techId).add(slot))
-            }
-          }
-        }
-      }
-    }
-
-    // Extract technician info from guest data
-    const selectedTechnicianIds = []
+    // Extract service and technician info from guest data
+    const serviceVariationIds = []
+    const teamMemberIds = []
     let hasAnyStaffSelection = false
 
     if (Array.isArray(guestData)) {
       for (const guest of guestData) {
+        // Collect service variation IDs
+        if (guest.services) {
+          for (const service of guest.services) {
+            const variationId = service.squareVariationId || service.id
+            if (variationId && !serviceVariationIds.includes(variationId)) {
+              serviceVariationIds.push(variationId)
+            }
+          }
+        }
+
+        // Collect technician IDs
         if (guest.technician?.id === 'any') {
           hasAnyStaffSelection = true
         } else if (guest.technician?.id) {
-          selectedTechnicianIds.push(guest.technician.id)
+          if (!teamMemberIds.includes(guest.technician.id)) {
+            teamMemberIds.push(guest.technician.id)
+          }
         }
       }
     }
 
-    // Get all technician IDs for "Any Staff" checking
-    const allTechnicianIds = Array.from(technicianBookings.keys())
+    // If no services selected yet, we can't search availability properly
+    // Fall back to getting all team member availability
+    if (serviceVariationIds.length === 0) {
+      // Return empty - user needs to select services first
+      return {
+        availableSlots: [],
+        message: 'Please select services first'
+      }
+    }
 
-    // Filter slots based on technician availability
-    const availableSlots = allTimeSlots.filter(slot => {
-      // First check: ALL specifically selected technicians must be available
-      for (const techId of selectedTechnicianIds) {
-        const techBookedSlots = technicianBookings.get(techId)
-        if (techBookedSlots && techBookedSlots.has(slot)) {
-          return false // A specific technician is booked at this time
+    // Build the search request
+    // Start and end of the selected date
+    const startAt = new Date(date + 'T00:00:00')
+    const endAt = new Date(date + 'T23:59:59')
+
+    // Build segment filters for each service
+    const segmentFilters = serviceVariationIds.map(serviceId => {
+      const filter = {
+        serviceVariationId: serviceId
+      }
+
+      // If specific technicians selected (not "Any Staff"), filter by them
+      if (teamMemberIds.length > 0 && !hasAnyStaffSelection) {
+        filter.teamMemberIdFilter = {
+          any: teamMemberIds
         }
       }
 
-      // Second check: If "Any Staff" selected, at least one technician must be free
-      if (hasAnyStaffSelection) {
-        // Check if at least one technician is available at this slot
-        let anyAvailable = false
-
-        // If we have booking data, check against known technicians
-        if (allTechnicianIds.length > 0) {
-          for (const techId of allTechnicianIds) {
-            const techBookedSlots = technicianBookings.get(techId)
-            if (!techBookedSlots || !techBookedSlots.has(slot)) {
-              anyAvailable = true
-              break
-            }
-          }
-        } else {
-          // No booking data means all technicians are available
-          anyAvailable = true
-        }
-
-        return anyAvailable
-      }
-
-      return true // No "Any Staff" selection, specific technicians are available
+      return filter
     })
 
+    const searchRequest = {
+      query: {
+        filter: {
+          locationId: locationId,
+          startAtRange: {
+            startAt: startAt.toISOString(),
+            endAt: endAt.toISOString()
+          },
+          segmentFilters: segmentFilters
+        }
+      }
+    }
+
+    console.log('Square searchAvailability request:', JSON.stringify(searchRequest, null, 2))
+
+    const response = await client.bookings.searchAvailability(searchRequest)
+
+    console.log('Square searchAvailability response:', JSON.stringify(response, null, 2))
+
+    // Extract available time slots from the response
+    const availableSlots = new Set()
+
+    if (response.availabilities) {
+      for (const availability of response.availabilities) {
+        if (availability.startAt) {
+          const startTime = new Date(availability.startAt)
+          // Format as HH:MM in 24-hour format
+          const hours = String(startTime.getHours()).padStart(2, '0')
+          const minutes = String(startTime.getMinutes()).padStart(2, '0')
+          availableSlots.add(`${hours}:${minutes}`)
+        }
+      }
+    }
+
+    // Sort the time slots
+    const sortedSlots = Array.from(availableSlots).sort()
+
     return {
-      availableSlots,
-      totalBookings: response.bookings?.length || 0,
-      technicianCount: selectedTechnicianIds.length
+      availableSlots: sortedSlots,
+      totalAvailabilities: response.availabilities?.length || 0,
+      technicianCount: teamMemberIds.length,
+      hasAnyStaff: hasAnyStaffSelection
     }
   } catch (error) {
     console.error('Error fetching Square availability:', error)
@@ -113,35 +117,7 @@ async function fetchSquareAvailability(date, guestData, allTimeSlots) {
   }
 }
 
-// Helper function to get all time slots blocked by a booking
-function getBlockedTimeSlots(startTime, durationMinutes, allTimeSlots) {
-  const blocked = new Set()
-  blocked.add(startTime)
-
-  // Parse start time
-  const [hours, minutes] = startTime.split(':').map(Number)
-  const startMinutes = hours * 60 + minutes
-
-  // Block slots for the duration of the service
-  // Assuming 30-minute slot intervals
-  const slotInterval = 30
-  const slotsToBlock = Math.ceil(durationMinutes / slotInterval)
-
-  for (let i = 1; i < slotsToBlock; i++) {
-    const blockedMinutes = startMinutes + (i * slotInterval)
-    const blockedHours = Math.floor(blockedMinutes / 60)
-    const blockedMins = blockedMinutes % 60
-    const blockedTime = `${String(blockedHours).padStart(2, '0')}:${String(blockedMins).padStart(2, '0')}`
-
-    if (allTimeSlots.includes(blockedTime)) {
-      blocked.add(blockedTime)
-    }
-  }
-
-  return blocked
-}
-
-// Fetch time slots from business hours API
+// Fetch time slots from business hours API (fallback for mock mode)
 async function fetchTimeSlots() {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
@@ -159,25 +135,23 @@ export async function POST(request) {
     const { date, guests } = await request.json()
     const useSquareBookings = process.env.USE_SQUARE_BOOKINGS === 'true'
 
-    // Get available time slots based on business hours
-    const allTimeSlots = await fetchTimeSlots()
-
     if (useSquareBookings) {
-      // Pass guest data to check per-technician availability
-      const squareData = await fetchSquareAvailability(date, guests, allTimeSlots)
+      // Use Square's searchAvailability API - properly checks team member schedules
+      const squareData = await fetchSquareAvailability(date, guests)
 
       const guestCount = Array.isArray(guests) ? guests.length : guests
       return NextResponse.json({
         success: true,
         date,
         availableSlots: squareData.availableSlots,
-        message: `Found ${squareData.availableSlots.length} available slots for ${guestCount} guest(s) with ${squareData.technicianCount} technician(s)`,
+        message: squareData.message || `Found ${squareData.availableSlots.length} available slots for ${guestCount} guest(s)`,
         source: 'square',
-        totalBookings: squareData.totalBookings
+        totalAvailabilities: squareData.totalAvailabilities
       })
     }
 
     // Only use mock availability if Square is explicitly disabled
+    const allTimeSlots = await fetchTimeSlots()
     const availableSlots = allTimeSlots.filter((slot, index) => index % 3 !== 0)
     const guestCount = Array.isArray(guests) ? guests.length : guests
     return NextResponse.json({
