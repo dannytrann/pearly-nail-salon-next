@@ -37,6 +37,13 @@ async function fetchSquareTeamMembers() {
   }
 }
 
+// Services to exclude from online booking (by name or ID)
+// Add service names here that shouldn't appear in online booking
+const EXCLUDED_SERVICES = [
+  'Cuticle Trim',
+  // Add more service names here as needed
+]
+
 // Fetch services from Square Catalog
 async function fetchSquareServices() {
   try {
@@ -93,6 +100,12 @@ async function fetchSquareServices() {
           if (durationAttr && durationAttr.numberValue) {
             duration = parseInt(durationAttr.numberValue)
           }
+        }
+
+        // Skip excluded services
+        if (EXCLUDED_SERVICES.includes(itemData.name)) {
+          console.log(`Excluding service: ${itemData.name}`)
+          continue
         }
 
         const service = {
