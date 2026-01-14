@@ -85,7 +85,7 @@ async function fetchSquareAvailability(date, guestData) {
 
     const response = await client.bookings.searchAvailability(searchRequest)
 
-    console.log('Square searchAvailability response:', JSON.stringify(response, null, 2))
+    console.log('Square searchAvailability found', response.availabilities?.length || 0, 'availabilities')
 
     // Extract available time slots from the response
     const availableSlots = new Set()
@@ -94,16 +94,28 @@ async function fetchSquareAvailability(date, guestData) {
       for (const availability of response.availabilities) {
         if (availability.startAt) {
           const startTime = new Date(availability.startAt)
-          // Format as HH:MM in 24-hour format
-          const hours = String(startTime.getHours()).padStart(2, '0')
-          const minutes = String(startTime.getMinutes()).padStart(2, '0')
-          availableSlots.add(`${hours}:${minutes}`)
+          // Format as h:mm AM/PM (12-hour format)
+          const hours = startTime.getHours()
+          const minutes = startTime.getMinutes()
+          const period = hours >= 12 ? 'PM' : 'AM'
+          const displayHours = hours % 12 || 12 // Convert 0 to 12 for midnight
+          const displayMinutes = String(minutes).padStart(2, '0')
+          availableSlots.add(`${displayHours}:${displayMinutes} ${period}`)
         }
       }
     }
 
-    // Sort the time slots
-    const sortedSlots = Array.from(availableSlots).sort()
+    // Sort the time slots by actual time (convert back to 24h for sorting)
+    const sortedSlots = Array.from(availableSlots).sort((a, b) => {
+      const parseTime = (timeStr) => {
+        const [time, period] = timeStr.split(' ')
+        let [hours, minutes] = time.split(':').map(Number)
+        if (period === 'PM' && hours !== 12) hours += 12
+        if (period === 'AM' && hours === 12) hours = 0
+        return hours * 60 + minutes
+      }
+      return parseTime(a) - parseTime(b)
+    })
 
     return {
       availableSlots: sortedSlots,
