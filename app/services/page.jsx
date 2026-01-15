@@ -127,9 +127,9 @@ export default function ServicesPage() {
     <>
       <ProgressBar currentStep={2} />
 
-      <div className="container-custom py-8 pb-32 lg:pb-8">
-        {/* Two-column layout: Main content + Sidebar */}
-        <div className="flex gap-8 max-w-7xl mx-auto">
+      <div className="container-custom py-8 pb-32 lg:pb-8 lg:pr-96">
+        {/* Main content with space reserved for fixed sidebar on desktop */}
+        <div className="max-w-4xl mx-auto lg:mx-0">
           {/* Main Content */}
           <div className="flex-1 min-w-0">
             {/* Guest Progress */}
@@ -233,24 +233,23 @@ export default function ServicesPage() {
             </div>
           </div>
 
-          {/* Sidebar - Desktop only */}
-          <div className="hidden lg:block w-80 flex-shrink-0">
-            <SelectionSummary
-              selectedServices={selectedServices}
-              selectedTechnician={selectedTechnician}
-              onRemoveService={removeService}
-              totalPrice={totalPrice}
-              totalDuration={totalDuration}
-              currentGuestIndex={currentGuestIndex}
-              groupSize={groupSize}
-              onNext={handleNext}
-              isNextDisabled={isNextDisabled}
-              nextButtonText={nextButtonText}
-              mode="desktop"
-            />
           </div>
-        </div>
       </div>
+
+      {/* Fixed Sidebar - Desktop only */}
+      <SelectionSummary
+        selectedServices={selectedServices}
+        selectedTechnician={selectedTechnician}
+        onRemoveService={removeService}
+        totalPrice={totalPrice}
+        totalDuration={totalDuration}
+        currentGuestIndex={currentGuestIndex}
+        groupSize={groupSize}
+        onNext={handleNext}
+        isNextDisabled={isNextDisabled}
+        nextButtonText={nextButtonText}
+        mode="desktop"
+      />
 
       {/* Mobile Bottom Sheet */}
       <SelectionSummary

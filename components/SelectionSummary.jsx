@@ -50,9 +50,9 @@ export default function SelectionSummary({
 
   return (
     <>
-      {/* Desktop Sidebar - Hidden on mobile */}
-      {showDesktop && <div className="hidden lg:block">
-        <div className="sticky top-24 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      {/* Desktop Sidebar - Fixed on right side */}
+      {showDesktop && <div className="hidden lg:block fixed right-8 top-32 w-80 z-40">
+        <div className="bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
           {/* Header */}
           <div className="bg-gradient-to-r from-primary/10 to-secondary/10 px-5 py-4 border-b border-gray-100">
             <h3 className="font-heading text-lg tracking-wide">

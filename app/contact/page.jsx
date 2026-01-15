@@ -17,6 +17,8 @@ export default function ContactPage() {
     setContactInfo
   } = useBookingStore()
 
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
+
   const [formData, setFormData] = useState({
     name: contactInfo.name || '',
     phone: contactInfo.phone || '',
@@ -113,20 +115,43 @@ export default function ContactPage() {
     }
   }
 
+  // Calculate totals
+  const totalPrice = guests.reduce((sum, guest) =>
+    sum + (guest.services?.reduce((s, svc) => s + svc.price, 0) || 0), 0)
+  const totalDuration = guests.reduce((sum, guest) =>
+    sum + (guest.services?.reduce((s, svc) => s + svc.duration, 0) || 0), 0)
+  const totalServices = guests.reduce((sum, guest) =>
+    sum + (guest.services?.length || 0), 0)
+
+  // Format date for display
+  const formatDate = (dateStr) => {
+    if (!dateStr) return ''
+    const date = new Date(dateStr + 'T00:00:00')
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    })
+  }
+
   return (
     <>
       <ProgressBar currentStep={5} />
 
-      <div className="container-custom py-8">
-        <div className="max-w-2xl mx-auto">
-          <h2 className="text-3xl font-heading text-gray-800 mb-2 text-center">
+      <div className="container-custom py-8 pb-32 lg:pb-8">
+        <div className="max-w-6xl mx-auto">
+          <h2 className="text-3xl font-heading text-gray-800 mb-2 text-center lg:text-left">
             Contact Information
           </h2>
-          <p className="text-gray-600 text-center mb-8">
+          <p className="text-gray-600 text-center lg:text-left mb-8">
             We'll use this information to confirm your booking
           </p>
 
-          <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md p-6 md:p-8">
+          <div className="flex flex-col lg:flex-row gap-8">
+            {/* Form Column */}
+            <div className="flex-1">
+              <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md p-6 md:p-8">
             {/* Name */}
             <div className="mb-6">
               <label htmlFor="name" className="block text-sm font-semibold text-gray-700 mb-2">
@@ -241,6 +266,146 @@ export default function ContactPage() {
               </button>
             </div>
           </form>
+            </div>
+
+            {/* Summary Sidebar - Desktop */}
+            <div className="hidden lg:block w-80 flex-shrink-0">
+              <div className="sticky top-24 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-primary/10 to-secondary/10 px-5 py-4 border-b border-gray-100">
+                  <h3 className="font-heading text-lg tracking-wide">
+                    Booking Summary
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {groupSize} guest{groupSize !== 1 ? 's' : ''} · {totalServices} service{totalServices !== 1 ? 's' : ''}
+                  </p>
+                </div>
+
+                <div className="p-5">
+                  {/* Date & Time */}
+                  <div className="mb-4 pb-4 border-b border-gray-100">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Appointment</p>
+                    <p className="font-medium text-neutral-850">{formatDate(selectedDate)}</p>
+                    <p className="text-sm text-gray-600">{selectedTime}</p>
+                  </div>
+
+                  {/* Guests */}
+                  <div className="space-y-4 max-h-64 overflow-y-auto">
+                    {guests.map((guest, idx) => (
+                      <div key={idx} className="pb-3 border-b border-gray-100 last:border-0 last:pb-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                            Guest {idx + 1}
+                          </span>
+                          {guest.technician && (
+                            <span className="text-xs text-gray-400">· {guest.technician.name}</span>
+                          )}
+                        </div>
+                        {guest.services?.length > 0 ? (
+                          <div className="space-y-1">
+                            {guest.services.map((service) => (
+                              <div key={service.id} className="flex justify-between text-sm">
+                                <span className="text-gray-600 truncate pr-2">{service.name}</span>
+                                <span className="text-gray-500 flex-shrink-0">${service.price}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-400 italic">No services</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Totals */}
+                  <div className="mt-4 pt-4 border-t border-gray-200 bg-gray-50 -mx-5 -mb-5 px-5 py-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm text-gray-500">Total</span>
+                      <span className="text-xl font-heading text-neutral-850">${totalPrice}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-500">Duration</span>
+                      <span className="text-sm font-medium text-neutral-850">{totalDuration} min</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Summary Bottom Sheet */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
+        <div className="mx-3 mb-3 bg-white rounded-2xl shadow-[0_-4px_20px_rgba(0,0,0,0.15)] overflow-hidden">
+          {/* Expanded Content */}
+          <div className={`transition-all duration-300 ease-in-out overflow-hidden ${summaryExpanded ? 'max-h-96' : 'max-h-0'}`}>
+            <div className="p-4 max-h-80 overflow-y-auto border-b border-gray-100">
+              {/* Date & Time */}
+              <div className="mb-4 pb-3 border-b border-gray-100">
+                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Appointment</p>
+                <p className="font-medium text-neutral-850 text-sm">{formatDate(selectedDate)}</p>
+                <p className="text-sm text-gray-600">{selectedTime}</p>
+              </div>
+
+              {/* Guests */}
+              <div className="space-y-3">
+                {guests.map((guest, idx) => (
+                  <div key={idx} className={idx < guests.length - 1 ? 'pb-3 border-b border-gray-100' : ''}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+                        Guest {idx + 1}
+                      </span>
+                      {guest.technician && (
+                        <span className="text-xs text-gray-400">· {guest.technician.name}</span>
+                      )}
+                    </div>
+                    {guest.services?.length > 0 ? (
+                      <div className="space-y-1">
+                        {guest.services.map((service) => (
+                          <div key={service.id} className="flex justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-primary/50"></div>
+                              <span className="text-gray-700">{service.name}</span>
+                            </div>
+                            <span className="text-gray-500">${service.price}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic pl-4">No services</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Bar */}
+          <div className="px-4 py-3">
+            <button
+              type="button"
+              onClick={() => setSummaryExpanded(!summaryExpanded)}
+              className="flex items-center justify-between w-full"
+            >
+              <div>
+                <p className="text-sm font-semibold text-neutral-850 text-left">
+                  {groupSize} guest{groupSize !== 1 ? 's' : ''} · {totalServices} service{totalServices !== 1 ? 's' : ''}
+                </p>
+                <p className="text-xs text-gray-500">
+                  ${totalPrice} · {totalDuration} min
+                </p>
+              </div>
+              <svg
+                className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${summaryExpanded ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </>
