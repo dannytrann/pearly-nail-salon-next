@@ -8,15 +8,15 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        primary: '#A0CE4E',        // Sage green
-        'primary-dark': '#8BB842',
-        'primary-light': '#B8DC6E',
-        secondary: '#DCBAA1',      // Warm beige/tan
-        'secondary-dark': '#C9A78E',
-        accent: '#A0CE4E',
+        primary: '#194D80',        // Rich blue
+        'primary-dark': '#143D66',
+        'primary-light': '#2666A6',
+        secondary: '#194D80',      // Rich blue
+        'secondary-dark': '#143D66',
+        accent: '#194D80',
         neutral: {
-          850: '#333333',
-          750: '#494949',
+          850: '#1a1a1a',          // Darker for better contrast
+          750: '#333333',
         }
       },
       fontFamily: {

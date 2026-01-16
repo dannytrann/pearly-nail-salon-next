@@ -2,31 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Montserrat:wght@300;400;500;600;700&family=Great+Vibes&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Montserrat:wght@500;600;700;800&family=Great+Vibes&display=swap');
 
 @layer base {
   body {
     @apply font-body text-neutral-750 bg-white;
-    font-weight: 400;
+    font-weight: 500;  /* Medium instead of normal for better readability */
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-heading text-neutral-850;
-    font-weight: 500;
+    font-weight: 700;  /* Bold instead of medium */
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary hover:bg-primary-dark text-white font-medium py-3 px-8 rounded transition-all duration-200;
+    @apply bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-8 rounded transition-all duration-200;
   }
 
   .btn-secondary {
-    @apply bg-secondary hover:bg-secondary-dark text-white font-medium py-3 px-8 rounded transition-all duration-200;
+    @apply bg-secondary hover:bg-secondary-dark text-white font-semibold py-3 px-8 rounded transition-all duration-200;
   }
 
   .btn-outline {
-    @apply border border-neutral-750 hover:border-primary hover:text-primary text-neutral-750 py-3 px-8 rounded transition-all duration-200;
+    @apply border-2 border-neutral-750 hover:border-primary hover:text-primary text-neutral-750 font-semibold py-3 px-8 rounded transition-all duration-200;
   }
 
   .card {
