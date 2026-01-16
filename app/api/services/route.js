@@ -60,14 +60,11 @@ async function fetchSquareServices() {
   try {
     const client = getSquareClient()
 
-    // Fetch categories first
-    const categoryResponse = await client.catalog.search({ objectTypes: ['CATEGORY'] })
-
-    // Fetch only bookable appointment services using searchItems
-    // This filters to only services that have "Allow customers to book online" enabled
-    const response = await client.catalog.searchItems({
-      productTypes: ['APPOINTMENTS_SERVICE']
-    })
+    // Fetch categories and services in parallel for faster loading
+    const [categoryResponse, response] = await Promise.all([
+      client.catalog.search({ objectTypes: ['CATEGORY'] }),
+      client.catalog.searchItems({ productTypes: ['APPOINTMENTS_SERVICE'] })
+    ])
 
     const squareServices = []
     const serviceCategories = {}
@@ -168,10 +165,16 @@ export async function GET() {
 
     if (useSquareServices) {
       const squareData = await fetchSquareServices()
+
+      // Cache for 5 minutes (300 seconds) to speed up subsequent loads
       return NextResponse.json({
         success: true,
         ...squareData,
         source: 'square'
+      }, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600'
+        }
       })
     }
 
