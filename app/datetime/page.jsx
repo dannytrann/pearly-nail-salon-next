@@ -16,7 +16,8 @@ export default function DateTimePage() {
   const [selectedSlot, setSelectedSlot] = useState(selectedTime || null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [noAvailabilityMessage, setNoAvailabilityMessage] = useState('')
+  const [nextAvailableDate, setNextAvailableDate] = useState(null)
+  const [searchingNextAvailable, setSearchingNextAvailable] = useState(false)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
 
   useEffect(() => {
@@ -34,11 +35,53 @@ export default function DateTimePage() {
   const totalServices = guests.reduce((sum, guest) =>
     sum + (guest.services?.length || 0), 0)
 
+  // Find the next available date starting from a given date
+  const findNextAvailableDate = async (startDate) => {
+    const maxDaysToCheck = 30 // Look up to 30 days ahead
+    let checkDate = new Date(startDate + 'T00:00:00')
+    checkDate.setDate(checkDate.getDate() + 1) // Start from the next day
+
+    for (let i = 0; i < maxDaysToCheck; i++) {
+      const dateString = checkDate.toISOString().split('T')[0]
+
+      try {
+        const response = await fetch('/api/availability', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: dateString, guests: guests })
+        })
+
+        const data = await response.json()
+
+        if (data.success && data.availableSlots && data.availableSlots.length > 0) {
+          return dateString
+        }
+      } catch (err) {
+        console.error('Error checking date:', dateString, err)
+      }
+
+      checkDate.setDate(checkDate.getDate() + 1)
+    }
+
+    return null // No availability found in the next 30 days
+  }
+
+  // Format date for "No availability until" message (e.g., "Sunday, January 18")
+  const formatNextAvailableDate = (dateString) => {
+    if (!dateString) return ''
+    const date = new Date(dateString + 'T00:00:00')
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric'
+    })
+  }
+
   const handleDateChange = async (newDate) => {
     setDate(newDate)
     setSelectedSlot(null)
     setError('')
-    setNoAvailabilityMessage('')
+    setNextAvailableDate(null)
 
     if (!newDate) {
       setAvailableSlots([])
@@ -63,8 +106,13 @@ export default function DateTimePage() {
 
       if (data.success) {
         setAvailableSlots(data.availableSlots)
+
+        // If no slots available, find the next available date
         if (data.availableSlots.length === 0) {
-          setNoAvailabilityMessage(data.message || 'No availability on this date')
+          setSearchingNextAvailable(true)
+          const nextDate = await findNextAvailableDate(newDate)
+          setNextAvailableDate(nextDate)
+          setSearchingNextAvailable(false)
         }
       } else {
         setError(data.error || 'Failed to load available slots')
@@ -74,6 +122,12 @@ export default function DateTimePage() {
       console.error(err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleGoToNextAvailable = () => {
+    if (nextAvailableDate) {
+      handleDateChange(nextAvailableDate)
     }
   }
 
@@ -152,19 +206,25 @@ export default function DateTimePage() {
                     </div>
                   ) : (
                     <div className="text-center py-6">
-                      <p className="text-gray-500 mb-4">
-                        {noAvailabilityMessage || 'No available slots for this date'}
-                      </p>
-                      <button
-                        onClick={() => {
-                          // Find next available date logic could go here
-                          // For now, just clear the date
-                          setDate('')
-                        }}
-                        className="inline-flex items-center gap-2 bg-neutral-850 text-white px-6 py-3 rounded-lg font-medium hover:bg-neutral-900 transition-colors"
-                      >
-                        Go to next available
-                      </button>
+                      {searchingNextAvailable ? (
+                        <p className="text-gray-500">Finding next available date...</p>
+                      ) : nextAvailableDate ? (
+                        <>
+                          <p className="text-gray-600 mb-4">
+                            No availability until <span className="font-medium">{formatNextAvailableDate(nextAvailableDate)}</span>.
+                          </p>
+                          <button
+                            onClick={handleGoToNextAvailable}
+                            className="w-full bg-neutral-850 text-white px-6 py-3 rounded-lg font-medium hover:bg-neutral-900 transition-colors"
+                          >
+                            Go to next available
+                          </button>
+                        </>
+                      ) : (
+                        <p className="text-gray-500">
+                          No availability in the next 30 days. Please contact us directly.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
