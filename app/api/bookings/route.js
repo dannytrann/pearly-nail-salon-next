@@ -59,10 +59,21 @@ async function findAvailableTechnician(selectedDate, selectedTime, duration) {
       }
     }
 
-    // Parse the selected time
-    const [hours, minutes] = selectedTime.split(':')
+    // Parse the selected time (handle both 12-hour and 24-hour formats)
     const requestedStart = new Date(selectedDate + 'T00:00:00')
-    requestedStart.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+
+    if (selectedTime.includes('AM') || selectedTime.includes('PM')) {
+      // 12-hour format (e.g., "2:30 PM")
+      const [time, period] = selectedTime.split(' ')
+      let [hours, mins] = time.split(':').map(Number)
+      if (period === 'PM' && hours !== 12) hours += 12
+      if (period === 'AM' && hours === 12) hours = 0
+      requestedStart.setHours(hours, mins, 0, 0)
+    } else {
+      // 24-hour format (e.g., "14:30")
+      const [hours, minutes] = selectedTime.split(':')
+      requestedStart.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+    }
     const requestedEnd = new Date(requestedStart)
     requestedEnd.setMinutes(requestedEnd.getMinutes() + duration)
 
@@ -95,16 +106,38 @@ async function findAvailableTechnician(selectedDate, selectedTime, duration) {
   }
 }
 
+// Parse 12-hour time format (e.g., "2:30 PM") to hours and minutes
+function parse12HourTime(timeStr) {
+  const [time, period] = timeStr.split(' ')
+  let [hours, minutes] = time.split(':').map(Number)
+
+  if (period === 'PM' && hours !== 12) {
+    hours += 12
+  } else if (period === 'AM' && hours === 12) {
+    hours = 0
+  }
+
+  return { hours, minutes }
+}
+
 // Create booking in Square
 async function createSquareBooking(guest, selectedDate, selectedTime, contactInfo) {
   try {
     const client = getSquareClient()
     const locationId = getLocationId()
 
-    // Combine date and time
-    const [hours, minutes] = selectedTime.split(':')
+    // Combine date and time (handle both 12-hour and 24-hour formats)
     const startDate = new Date(selectedDate + 'T00:00:00')
-    startDate.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+
+    if (selectedTime.includes('AM') || selectedTime.includes('PM')) {
+      // 12-hour format (e.g., "2:30 PM")
+      const { hours, minutes } = parse12HourTime(selectedTime)
+      startDate.setHours(hours, minutes, 0, 0)
+    } else {
+      // 24-hour format (e.g., "14:30")
+      const [hours, minutes] = selectedTime.split(':')
+      startDate.setHours(parseInt(hours), parseInt(minutes), 0, 0)
+    }
 
     // Calculate end time based on total duration
     const endDate = new Date(startDate)
