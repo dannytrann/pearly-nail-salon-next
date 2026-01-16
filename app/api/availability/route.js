@@ -2,39 +2,47 @@ import { NextResponse } from 'next/server'
 import { timeSlots } from '@/lib/mockData'
 import { getSquareClient, getLocationId } from '@/lib/squareClient'
 
-// Fetch business hours for a specific date from Square
-async function getBusinessHoursForDate(client, locationId, date) {
-  try {
-    const response = await client.locations.get(locationId)
-
-    if (response.location?.businessHours?.periods) {
-      const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
-      const dateObj = new Date(date + 'T00:00:00')
-      const dayOfWeek = days[dateObj.getDay()]
-
-      const todayHours = response.location.businessHours.periods.find(
-        p => p.dayOfWeek === dayOfWeek
-      )
-
-      if (todayHours) {
-        return {
-          startTime: todayHours.startLocalTime, // e.g., "09:00"
-          endTime: todayHours.endLocalTime,     // e.g., "18:00"
-          isOpen: true
-        }
-      }
-    }
-
-    // Default to 9 AM - 6 PM if not found
-    return { startTime: '09:00', endTime: '18:00', isOpen: true }
-  } catch (error) {
-    console.error('Error fetching business hours:', error)
-    // Default to 9 AM - 6 PM on error
-    return { startTime: '09:00', endTime: '18:00', isOpen: true }
-  }
+// Business hours configuration
+// lastBookingBuffer: how many minutes before closing is the last booking allowed
+const BUSINESS_HOURS = {
+  SUN: { startTime: '10:00', endTime: '16:00', lastBookingBuffer: 60 }, // 10 AM - 4 PM, last booking 3 PM
+  MON: { startTime: '09:00', endTime: '18:00', lastBookingBuffer: 60 }, // 9 AM - 6 PM, last booking 5 PM
+  TUE: { startTime: '09:00', endTime: '18:00', lastBookingBuffer: 60 },
+  WED: { startTime: '09:00', endTime: '18:00', lastBookingBuffer: 60 },
+  THU: { startTime: '09:00', endTime: '18:00', lastBookingBuffer: 60 },
+  FRI: { startTime: '09:00', endTime: '18:00', lastBookingBuffer: 60 },
+  SAT: { startTime: '09:00', endTime: '18:00', lastBookingBuffer: 60 },
 }
 
-// Check if a time slot is within business hours
+// Get business hours for a specific date
+function getBusinessHoursForDate(date) {
+  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+  const dateObj = new Date(date + 'T00:00:00')
+  const dayOfWeek = days[dateObj.getDay()]
+
+  const hours = BUSINESS_HOURS[dayOfWeek]
+  if (hours) {
+    // Calculate last booking time (endTime minus buffer)
+    const [endHour, endMin] = hours.endTime.split(':').map(Number)
+    const endMinutes = endHour * 60 + endMin
+    const lastBookingMinutes = endMinutes - hours.lastBookingBuffer
+    const lastBookingHour = Math.floor(lastBookingMinutes / 60)
+    const lastBookingMin = lastBookingMinutes % 60
+    const lastBookingTime = `${String(lastBookingHour).padStart(2, '0')}:${String(lastBookingMin).padStart(2, '0')}`
+
+    return {
+      startTime: hours.startTime,
+      endTime: hours.endTime,
+      lastBookingTime: lastBookingTime, // Last allowed booking time
+      isOpen: true
+    }
+  }
+
+  // Default if day not found (shouldn't happen)
+  return { startTime: '09:00', endTime: '18:00', lastBookingTime: '17:00', isOpen: true }
+}
+
+// Check if a time slot is within bookable hours (up to last booking time)
 function isWithinBusinessHours(timeSlot, businessHours) {
   // Parse the 12-hour time slot (e.g., "6:00 PM")
   const [time, period] = timeSlot.split(' ')
@@ -43,13 +51,14 @@ function isWithinBusinessHours(timeSlot, businessHours) {
   if (period === 'AM' && hours === 12) hours = 0
   const slotMinutes = hours * 60 + minutes
 
-  // Parse business hours (24-hour format, e.g., "09:00", "18:00")
+  // Parse business hours (24-hour format, e.g., "09:00", "17:00")
   const [startHour, startMin] = businessHours.startTime.split(':').map(Number)
-  const [endHour, endMin] = businessHours.endTime.split(':').map(Number)
+  const [lastHour, lastMin] = businessHours.lastBookingTime.split(':').map(Number)
   const startMinutes = startHour * 60 + startMin
-  const endMinutes = endHour * 60 + endMin
+  const lastMinutes = lastHour * 60 + lastMin
 
-  return slotMinutes >= startMinutes && slotMinutes < endMinutes
+  // Slot must be >= opening time and <= last booking time
+  return slotMinutes >= startMinutes && slotMinutes <= lastMinutes
 }
 
 // Use Square's searchAvailability API to get actual technician availability
@@ -175,8 +184,8 @@ async function fetchSquareAvailability(date, guestData) {
 
     console.log('Square searchAvailability found', response.availabilities?.length || 0, 'availabilities')
 
-    // Fetch business hours for the selected date to filter results
-    const businessHours = await getBusinessHoursForDate(client, locationId, date)
+    // Get business hours for the selected date to filter results
+    const businessHours = getBusinessHoursForDate(date)
     console.log('Business hours for', date, ':', businessHours)
 
     // Extract available time slots from the response
