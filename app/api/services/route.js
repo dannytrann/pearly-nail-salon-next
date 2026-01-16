@@ -60,16 +60,19 @@ async function fetchSquareServices() {
   try {
     const client = getSquareClient()
 
+    console.time('Fetch categories and services')
     // Fetch categories and services in parallel for faster loading
     const [categoryResponse, response] = await Promise.all([
       client.catalog.search({ objectTypes: ['CATEGORY'] }),
       client.catalog.searchItems({ productTypes: ['APPOINTMENTS_SERVICE'] })
     ])
+    console.timeEnd('Fetch categories and services')
 
     const squareServices = []
     const serviceCategories = {}
     const categoryMap = {}
 
+    console.time('Build category map')
     // Build a map of category IDs to category names
     if (categoryResponse.objects) {
       for (const obj of categoryResponse.objects) {
@@ -78,12 +81,14 @@ async function fetchSquareServices() {
         }
       }
     }
+    console.timeEnd('Build category map')
 
     // Process bookable items from searchCatalogItems response
     // searchCatalogItems returns 'items' array instead of 'objects'
     const items = response.items || []
     console.log(`Found ${items.length} bookable appointment services`)
 
+    console.time('Process services')
     for (const item of items) {
       if (item.type === 'ITEM' && item.itemData) {
         const itemData = item.itemData
@@ -141,12 +146,18 @@ async function fetchSquareServices() {
         serviceCategories[categoryName].push(service)
       }
     }
+    console.timeEnd('Process services')
 
     // Fetch technicians from Square (no mock fallback in production)
     let squareTechnicians = []
     if (process.env.USE_SQUARE_TECHNICIANS === 'true') {
+      console.time('Fetch technicians')
       squareTechnicians = await fetchSquareTeamMembers()
+      console.timeEnd('Fetch technicians')
     }
+
+    console.log('Total services:', squareServices.length)
+    console.log('Total technicians:', squareTechnicians.length)
 
     return {
       services: squareServices,
@@ -161,10 +172,12 @@ async function fetchSquareServices() {
 
 export async function GET() {
   try {
+    console.time('Total services API')
     const useSquareServices = process.env.USE_SQUARE_SERVICES === 'true'
 
     if (useSquareServices) {
       const squareData = await fetchSquareServices()
+      console.timeEnd('Total services API')
 
       // Cache for 5 minutes (300 seconds) to speed up subsequent loads
       return NextResponse.json({
