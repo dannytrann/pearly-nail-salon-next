@@ -19,6 +19,7 @@ export default function DateTimePage() {
   const [nextAvailableDate, setNextAvailableDate] = useState(null)
   const [searchingNextAvailable, setSearchingNextAvailable] = useState(false)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
+  const [unavailableTechInfo, setUnavailableTechInfo] = useState(null)
 
   useEffect(() => {
     // Redirect if no bookings
@@ -107,6 +108,17 @@ export default function DateTimePage() {
 
       if (data.success) {
         setAvailableSlots(data.availableSlots)
+
+        // Check if specific technicians are unavailable
+        if (data.unavailableTechnicians && data.unavailableTechnicians.length > 0) {
+          setUnavailableTechInfo({
+            technicians: data.unavailableTechnicians,
+            date: newDate,
+            guestAvailability: data.guestAvailabilityCounts
+          })
+        } else {
+          setUnavailableTechInfo(null)
+        }
 
         // If no slots available, find the next available date
         if (data.availableSlots.length === 0) {
@@ -209,22 +221,67 @@ export default function DateTimePage() {
                     <div className="text-center py-6">
                       {searchingNextAvailable ? (
                         <p className="text-gray-500">Finding next available date...</p>
+                      ) : unavailableTechInfo && unavailableTechInfo.technicians.length > 0 ? (
+                        <div className="space-y-4">
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-left">
+                            <h4 className="font-semibold text-amber-900 mb-2">Technician Unavailable</h4>
+                            <p className="text-sm text-amber-800 mb-3">
+                              {unavailableTechInfo.technicians.map((tech, idx) => (
+                                <span key={idx}>
+                                  <span className="font-semibold">{tech.technician.name}</span> (Guest {tech.guestNumber})
+                                  {idx < unavailableTechInfo.technicians.length - 1 && ', '}
+                                </span>
+                              ))} {unavailableTechInfo.technicians.length === 1 ? 'has' : 'have'} no availability on this date.
+                            </p>
+                            {unavailableTechInfo.guestAvailability && (
+                              <div className="text-xs text-amber-700 space-y-1 mb-3">
+                                {unavailableTechInfo.guestAvailability.map((guest, idx) => (
+                                  <div key={idx}>
+                                    Guest {guest.guestNumber} ({guest.technician || 'Any Staff'}): {guest.availableSlots > 0 ? `${guest.availableSlots} slots` : 'No slots'}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => router.push('/services')}
+                            className="w-full bg-primary text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-dark transition-colors"
+                          >
+                            Change Technician Selection
+                          </button>
+                          {nextAvailableDate && (
+                            <button
+                              onClick={handleGoToNextAvailable}
+                              className="w-full bg-neutral-850 text-white px-6 py-3 rounded-lg font-semibold hover:bg-neutral-900 transition-colors"
+                            >
+                              Try {formatNextAvailableDate(nextAvailableDate)}
+                            </button>
+                          )}
+                        </div>
                       ) : nextAvailableDate ? (
                         <>
                           <p className="text-gray-600 mb-4">
-                            No availability until <span className="font-medium">{formatNextAvailableDate(nextAvailableDate)}</span>.
+                            No availability until <span className="font-semibold">{formatNextAvailableDate(nextAvailableDate)}</span>.
                           </p>
                           <button
                             onClick={handleGoToNextAvailable}
-                            className="w-full bg-neutral-850 text-white px-6 py-3 rounded-lg font-medium hover:bg-neutral-900 transition-colors"
+                            className="w-full bg-neutral-850 text-white px-6 py-3 rounded-lg font-semibold hover:bg-neutral-900 transition-colors"
                           >
                             Go to next available
                           </button>
                         </>
                       ) : (
-                        <p className="text-gray-500">
-                          No availability in the next 30 days. Please contact us directly.
-                        </p>
+                        <div className="space-y-4">
+                          <p className="text-gray-600">
+                            No availability in the next 30 days. Please contact us directly.
+                          </p>
+                          <button
+                            onClick={() => router.push('/services')}
+                            className="w-full bg-primary text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-dark transition-colors"
+                          >
+                            Change Technician Selection
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}

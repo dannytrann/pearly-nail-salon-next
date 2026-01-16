@@ -201,6 +201,16 @@ async function fetchSquareAvailability(date, guestData) {
       return parseTime(a) - parseTime(b)
     })
 
+    // Identify which technicians have no availability
+    const unavailableTechnicians = guestData
+      .map((guest, index) => ({
+        guestIndex: index,
+        guestNumber: index + 1,
+        technician: guest.technician,
+        hasAvailability: guestAvailabilities[index].size > 0
+      }))
+      .filter(g => !g.hasAvailability && g.technician?.id !== 'any')
+
     // Count unique technicians
     const uniqueTechnicianIds = guestData
       .map(g => g.technician?.id)
@@ -212,7 +222,13 @@ async function fetchSquareAvailability(date, guestData) {
       totalAvailabilities: sortedSlots.length,
       technicianCount: new Set(uniqueTechnicianIds).size,
       hasAnyStaff: hasAnyStaffSelection,
-      guestCount: guestData.length
+      guestCount: guestData.length,
+      unavailableTechnicians: unavailableTechnicians.length > 0 ? unavailableTechnicians : undefined,
+      guestAvailabilityCounts: guestData.map((guest, i) => ({
+        guestNumber: i + 1,
+        technician: guest.technician?.name,
+        availableSlots: guestAvailabilities[i].size
+      }))
     }
   } catch (error) {
     console.error('Error fetching Square availability:', error)
