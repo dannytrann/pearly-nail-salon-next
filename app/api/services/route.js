@@ -93,9 +93,13 @@ async function fetchSquareServices() {
         const variation = itemData.variations?.[0]
         if (!variation) continue
 
-        // Try to get duration from item custom attributes or default to 30
+        // Get duration from variation's serviceDuration (in milliseconds) or default to 30 min
         let duration = 30
-        if (itemData.customAttributeValues) {
+        if (variation.itemVariationData?.serviceDuration) {
+          // serviceDuration is in milliseconds, convert to minutes
+          duration = Math.round(Number(variation.itemVariationData.serviceDuration) / 60000)
+        } else if (itemData.customAttributeValues) {
+          // Fallback to custom attributes if serviceDuration not available
           const durationAttr = Object.values(itemData.customAttributeValues).find(
             attr => attr.name?.toLowerCase().includes('duration')
           )
