@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server'
 import { services, categories, technicians } from '@/lib/mockData'
 import { getSquareClient, getLocationId } from '@/lib/squareClient'
 
+// Display name mappings for team members
+// Maps Square's full name to a preferred display name
+const TECHNICIAN_DISPLAY_NAMES = {
+  'Cheng Ping Deng': 'Simone',
+}
+
 // Fetch technicians from Square Team API
 async function fetchSquareTeamMembers() {
   try {
@@ -21,9 +27,12 @@ async function fetchSquareTeamMembers() {
 
     if (response.teamMembers) {
       for (const member of response.teamMembers) {
+        const fullName = `${member.givenName || ''} ${member.familyName || ''}`.trim()
+        const displayName = TECHNICIAN_DISPLAY_NAMES[fullName] || fullName || 'Team Member'
+
         squareTechnicians.push({
           id: member.id,
-          name: `${member.givenName || ''} ${member.familyName || ''}`.trim() || 'Team Member',
+          name: displayName,
           squareTeamMemberId: member.id,
           isActive: member.status === 'ACTIVE'
         })

@@ -25,6 +25,8 @@ export default function ServicesPage() {
   const [loading, setLoading] = useState(true)
   const [selectedServices, setSelectedServices] = useState([])
   const [selectedTechnician, setSelectedTechnician] = useState(null)
+  // New: track which step we're on for current guest
+  const [step, setStep] = useState('services') // 'services' or 'technician'
 
   useEffect(() => {
     // Redirect if no group size selected
@@ -71,33 +73,43 @@ export default function ServicesPage() {
   }
 
   const handleNext = () => {
-    // Save current guest's selections
-    updateGuestServices(currentGuestIndex, selectedServices)
-    updateGuestTechnician(currentGuestIndex, selectedTechnician)
-
-    // Move to next guest or next page
-    if (currentGuestIndex < groupSize - 1) {
-      setCurrentGuestIndex(currentGuestIndex + 1)
-      // Reset selections for next guest
-      const nextGuest = guests[currentGuestIndex + 1]
-      setSelectedServices(nextGuest?.services || [])
-      setSelectedTechnician(nextGuest?.technician || null)
-      // Scroll to top for next guest (after state update)
-      setTimeout(() => {
-        window.scrollTo({ top: 0, behavior: 'smooth' })
-      }, 100)
+    if (step === 'services') {
+      // Save services and move to technician step
+      updateGuestServices(currentGuestIndex, selectedServices)
+      setStep('technician')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
-      router.push('/review')
+      // Save technician and move to next guest or review
+      updateGuestTechnician(currentGuestIndex, selectedTechnician)
+
+      if (currentGuestIndex < groupSize - 1) {
+        setCurrentGuestIndex(currentGuestIndex + 1)
+        // Reset for next guest
+        const nextGuest = guests[currentGuestIndex + 1]
+        setSelectedServices(nextGuest?.services || [])
+        setSelectedTechnician(nextGuest?.technician || null)
+        setStep('services') // Reset to services step for next guest
+        setTimeout(() => {
+          window.scrollTo({ top: 0, behavior: 'smooth' })
+        }, 100)
+      } else {
+        router.push('/review')
+      }
     }
   }
 
   const handleBack = () => {
-    if (currentGuestIndex > 0) {
+    if (step === 'technician') {
+      // Go back to services step
+      setStep('services')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } else if (currentGuestIndex > 0) {
+      // Go to previous guest's technician step
       setCurrentGuestIndex(currentGuestIndex - 1)
       const prevGuest = guests[currentGuestIndex - 1]
       setSelectedServices(prevGuest?.services || [])
       setSelectedTechnician(prevGuest?.technician || null)
-      // Scroll to top when going back (after state update)
+      setStep('technician') // Go to technician step of previous guest
       setTimeout(() => {
         window.scrollTo({ top: 0, behavior: 'smooth' })
       }, 100)
@@ -108,6 +120,12 @@ export default function ServicesPage() {
 
   const totalPrice = selectedServices.reduce((sum, s) => sum + s.price, 0)
   const totalDuration = selectedServices.reduce((sum, s) => sum + s.duration, 0)
+
+  // Get technicians already selected by OTHER guests (not current guest)
+  const takenTechnicians = guests
+    .filter((_, idx) => idx !== currentGuestIndex)
+    .map(g => g.technician?.id)
+    .filter(id => id && id !== 'any') // "Any Staff" can be selected by multiple guests
 
   if (loading) {
     return (
@@ -120,8 +138,20 @@ export default function ServicesPage() {
     )
   }
 
-  const nextButtonText = currentGuestIndex < groupSize - 1 ? 'Next Guest' : 'Review Booking'
-  const isNextDisabled = selectedServices.length === 0 || !selectedTechnician
+  // Dynamic button text based on step
+  const getNextButtonText = () => {
+    if (step === 'services') {
+      return 'Choose Technician'
+    }
+    return currentGuestIndex < groupSize - 1 ? 'Next Guest' : 'Review Booking'
+  }
+
+  // Dynamic disabled state based on step
+  const isNextDisabled = step === 'services'
+    ? selectedServices.length === 0
+    : !selectedTechnician
+
+  const nextButtonText = getNextButtonText()
 
   return (
     <>
@@ -135,11 +165,38 @@ export default function ServicesPage() {
             {/* Guest Progress */}
             <div className="mb-10 text-center lg:text-left">
               <h2 className="text-3xl md:text-4xl font-heading tracking-wide mb-2">
-                Choose Services
+                {step === 'services' ? 'Choose Services' : 'Choose Technician'}
               </h2>
               <p className="text-gray-400 tracking-wide">
                 Guest {currentGuestIndex + 1} of {groupSize}
               </p>
+
+              {/* Step indicator for current guest */}
+              <div className="flex items-center justify-center lg:justify-start gap-3 mt-4">
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                    step === 'services' ? 'bg-primary text-white' : 'bg-primary/20 text-primary'
+                  }`}>
+                    1
+                  </div>
+                  <span className={`text-sm ${step === 'services' ? 'text-neutral-850 font-medium' : 'text-gray-400'}`}>
+                    Services
+                  </span>
+                </div>
+                <div className="w-8 h-px bg-gray-300"></div>
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                    step === 'technician' ? 'bg-primary text-white' : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    2
+                  </div>
+                  <span className={`text-sm ${step === 'technician' ? 'text-neutral-850 font-medium' : 'text-gray-400'}`}>
+                    Technician
+                  </span>
+                </div>
+              </div>
+
+              {/* Guest progress dots (for multiple guests) */}
               {groupSize > 1 && (
                 <div className="flex items-center justify-center lg:justify-start gap-2 mt-4">
                   {Array.from({ length: groupSize }).map((_, index) => (
@@ -158,59 +215,108 @@ export default function ServicesPage() {
               )}
             </div>
 
-            {/* Services by Category */}
-            <div className="space-y-10 mb-10">
-              {Object.entries(categories).map(([categoryName, categoryServices]) => (
-                <div key={categoryName}>
-                  <h3 className="text-xl font-heading tracking-wide mb-5 pb-2 border-b border-gray-200">
-                    {categoryName}
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {categoryServices.map(service => (
-                      <ServiceCard
-                        key={service.id}
-                        service={service}
-                        isSelected={selectedServices.some(s => s.id === service.id)}
-                        onToggle={() => toggleService(service)}
-                      />
-                    ))}
+            {/* Step 1: Services by Category */}
+            {step === 'services' && (
+              <div className="space-y-10 mb-10">
+                {Object.entries(categories).map(([categoryName, categoryServices]) => (
+                  <div key={categoryName}>
+                    <h3 className="text-xl font-heading tracking-wide mb-5 pb-2 border-b border-gray-200">
+                      {categoryName}
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {categoryServices.map(service => (
+                        <ServiceCard
+                          key={service.id}
+                          service={service}
+                          isSelected={selectedServices.some(s => s.id === service.id)}
+                          onToggle={() => toggleService(service)}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Technician Selection */}
-            <div className="bg-gray-50 rounded-lg p-6 mb-8">
-              <h3 className="text-lg font-heading tracking-wide mb-4">
-                Preferred Technician
-              </h3>
-              <p className="text-sm text-gray-400 mb-4">Select a technician or let us assign the best available</p>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={() => setSelectedTechnician({ id: 'any', name: 'Any Staff' })}
-                  className={`px-5 py-2.5 rounded border transition-all duration-200 text-sm tracking-wide ${
-                    selectedTechnician?.id === 'any'
-                      ? 'bg-primary text-white border-primary'
-                      : 'bg-white text-neutral-750 border-gray-200 hover:border-primary'
-                  }`}
-                >
-                  Any Staff
-                </button>
-                {technicians.map(tech => (
-                  <button
-                    key={tech.id}
-                    onClick={() => setSelectedTechnician(tech)}
-                    className={`px-5 py-2.5 rounded border transition-all duration-200 text-sm tracking-wide ${
-                      selectedTechnician?.id === tech.id
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-white text-neutral-750 border-gray-200 hover:border-primary'
-                    }`}
-                  >
-                    {tech.name}
-                  </button>
                 ))}
               </div>
-            </div>
+            )}
+
+            {/* Step 2: Technician Selection */}
+            {step === 'technician' && (
+              <div className="mb-10">
+                {/* Selected Services Summary */}
+                <div className="bg-white border border-gray-200 rounded-xl p-5 mb-8">
+                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    Selected Services
+                  </h3>
+                  <div className="space-y-2">
+                    {selectedServices.map(service => (
+                      <div key={service.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+                        <span className="text-neutral-850">{service.name}</span>
+                        <span className="text-gray-500">${service.price} · {service.duration} min</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between">
+                    <span className="font-medium text-neutral-850">Total</span>
+                    <span className="font-semibold text-neutral-850">${totalPrice} · {totalDuration} min</span>
+                  </div>
+                </div>
+
+                {/* Technician Selection */}
+                <div className="bg-gray-50 rounded-xl p-6">
+                  <h3 className="text-lg font-heading tracking-wide mb-2">
+                    Who would you like?
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-6">Select a technician or let us assign the best available</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <button
+                      onClick={() => setSelectedTechnician({ id: 'any', name: 'Any Staff' })}
+                      className={`px-5 py-4 rounded-xl border-2 transition-all duration-200 text-sm tracking-wide ${
+                        selectedTechnician?.id === 'any'
+                          ? 'bg-primary text-white border-primary shadow-md'
+                          : 'bg-white text-neutral-750 border-gray-200 hover:border-primary hover:shadow-sm'
+                      }`}
+                    >
+                      <div className="font-medium">Any Staff</div>
+                      <div className={`text-xs mt-1 ${selectedTechnician?.id === 'any' ? 'text-white/80' : 'text-gray-400'}`}>
+                        First available
+                      </div>
+                    </button>
+                    {technicians.map(tech => {
+                      const isTaken = takenTechnicians.includes(tech.id)
+                      const takenByGuest = isTaken
+                        ? guests.findIndex(g => g.technician?.id === tech.id) + 1
+                        : null
+
+                      return (
+                        <button
+                          key={tech.id}
+                          onClick={() => !isTaken && setSelectedTechnician(tech)}
+                          disabled={isTaken}
+                          className={`px-5 py-4 rounded-xl border-2 transition-all duration-200 text-sm tracking-wide ${
+                            selectedTechnician?.id === tech.id
+                              ? 'bg-primary text-white border-primary shadow-md'
+                              : isTaken
+                              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                              : 'bg-white text-neutral-750 border-gray-200 hover:border-primary hover:shadow-sm'
+                          }`}
+                        >
+                          <div className="font-medium">{tech.name}</div>
+                          {isTaken && (
+                            <div className="text-xs mt-1 text-gray-400">
+                              Guest {takenByGuest}
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {takenTechnicians.length > 0 && (
+                    <p className="text-xs text-gray-400 mt-4 text-center">
+                      Some technicians are already selected by other guests
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Back Button - Desktop only (Next is in sidebar) */}
             <div className="hidden lg:block">
@@ -249,6 +355,7 @@ export default function ServicesPage() {
         isNextDisabled={isNextDisabled}
         nextButtonText={nextButtonText}
         mode="desktop"
+        step={step}
       />
 
       {/* Mobile Bottom Sheet */}
@@ -265,6 +372,7 @@ export default function ServicesPage() {
         isNextDisabled={isNextDisabled}
         nextButtonText={nextButtonText}
         mode="mobile"
+        step={step}
       />
     </>
   )
