@@ -2,6 +2,56 @@ import { NextResponse } from 'next/server'
 import { timeSlots } from '@/lib/mockData'
 import { getSquareClient, getLocationId } from '@/lib/squareClient'
 
+// Fetch business hours for a specific date from Square
+async function getBusinessHoursForDate(client, locationId, date) {
+  try {
+    const response = await client.locations.get(locationId)
+
+    if (response.location?.businessHours?.periods) {
+      const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+      const dateObj = new Date(date + 'T00:00:00')
+      const dayOfWeek = days[dateObj.getDay()]
+
+      const todayHours = response.location.businessHours.periods.find(
+        p => p.dayOfWeek === dayOfWeek
+      )
+
+      if (todayHours) {
+        return {
+          startTime: todayHours.startLocalTime, // e.g., "09:00"
+          endTime: todayHours.endLocalTime,     // e.g., "18:00"
+          isOpen: true
+        }
+      }
+    }
+
+    // Default to 9 AM - 6 PM if not found
+    return { startTime: '09:00', endTime: '18:00', isOpen: true }
+  } catch (error) {
+    console.error('Error fetching business hours:', error)
+    // Default to 9 AM - 6 PM on error
+    return { startTime: '09:00', endTime: '18:00', isOpen: true }
+  }
+}
+
+// Check if a time slot is within business hours
+function isWithinBusinessHours(timeSlot, businessHours) {
+  // Parse the 12-hour time slot (e.g., "6:00 PM")
+  const [time, period] = timeSlot.split(' ')
+  let [hours, minutes] = time.split(':').map(Number)
+  if (period === 'PM' && hours !== 12) hours += 12
+  if (period === 'AM' && hours === 12) hours = 0
+  const slotMinutes = hours * 60 + minutes
+
+  // Parse business hours (24-hour format, e.g., "09:00", "18:00")
+  const [startHour, startMin] = businessHours.startTime.split(':').map(Number)
+  const [endHour, endMin] = businessHours.endTime.split(':').map(Number)
+  const startMinutes = startHour * 60 + startMin
+  const endMinutes = endHour * 60 + endMin
+
+  return slotMinutes >= startMinutes && slotMinutes < endMinutes
+}
+
 // Use Square's searchAvailability API to get actual technician availability
 // This properly checks team member work schedules, not just existing bookings
 async function fetchSquareAvailability(date, guestData) {
@@ -125,6 +175,10 @@ async function fetchSquareAvailability(date, guestData) {
 
     console.log('Square searchAvailability found', response.availabilities?.length || 0, 'availabilities')
 
+    // Fetch business hours for the selected date to filter results
+    const businessHours = await getBusinessHoursForDate(client, locationId, date)
+    console.log('Business hours for', date, ':', businessHours)
+
     // Extract available time slots from the response
     const availableSlots = new Set()
 
@@ -138,7 +192,12 @@ async function fetchSquareAvailability(date, guestData) {
           const period = hours >= 12 ? 'PM' : 'AM'
           const displayHours = hours % 12 || 12 // Convert 0 to 12 for midnight
           const displayMinutes = String(minutes).padStart(2, '0')
-          availableSlots.add(`${displayHours}:${displayMinutes} ${period}`)
+          const timeSlot = `${displayHours}:${displayMinutes} ${period}`
+
+          // Only add slots that are within business hours
+          if (isWithinBusinessHours(timeSlot, businessHours)) {
+            availableSlots.add(timeSlot)
+          }
         }
       }
     }
