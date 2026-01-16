@@ -30,8 +30,9 @@ export default function DateTimePage() {
   // Calculate totals
   const totalPrice = guests.reduce((sum, guest) =>
     sum + (guest.services?.reduce((s, svc) => s + svc.price, 0) || 0), 0)
-  const totalDuration = guests.reduce((sum, guest) =>
-    sum + (guest.services?.reduce((s, svc) => s + svc.duration, 0) || 0), 0)
+  // Show the longest service duration (services are done in parallel)
+  const totalDuration = Math.max(...guests.map(guest =>
+    guest.services?.reduce((s, svc) => s + svc.duration, 0) || 0))
   const totalServices = guests.reduce((sum, guest) =>
     sum + (guest.services?.length || 0), 0)
 

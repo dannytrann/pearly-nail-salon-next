@@ -43,8 +43,9 @@ export default function SelectionSummary({
   const allGuestsServiceCount = allGuestsData.reduce((sum, g) => sum + g.services.length, 0)
   const allGuestsTotalPrice = allGuestsData.reduce((sum, g) =>
     sum + g.services.reduce((s, svc) => s + svc.price, 0), 0)
-  const allGuestsTotalDuration = allGuestsData.reduce((sum, g) =>
-    sum + g.services.reduce((s, svc) => s + svc.duration, 0), 0)
+  // Show longest guest's duration (services are done in parallel)
+  const allGuestsTotalDuration = Math.max(...allGuestsData.map(g =>
+    g.services.reduce((s, svc) => s + svc.duration, 0)), 0)
 
   const showDesktop = mode === 'both' || mode === 'desktop'
   const showMobile = mode === 'both' || mode === 'mobile'
