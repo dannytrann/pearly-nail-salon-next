@@ -49,8 +49,8 @@ export default function RootLayout({ children }) {
                 </div>
                 <div>
                   <h3 className="text-lg font-heading text-white mb-4 tracking-wide">Hours</h3>
-                  <p className="text-gray-300 text-sm">Mon-Sat: 9:00 AM - 7:00 PM</p>
-                  <p className="text-gray-300 text-sm">Sunday: 10:00 AM - 6:00 PM</p>
+                  <p className="text-gray-300 text-sm">Mon-Sat: 9:00 AM - 6:00 PM</p>
+                  <p className="text-gray-300 text-sm">Sunday: 10:00 AM - 4:00 PM</p>
                 </div>
               </div>
               <div className="mt-10 pt-8 border-t border-gray-700 text-center text-gray-500 text-xs tracking-wide">
