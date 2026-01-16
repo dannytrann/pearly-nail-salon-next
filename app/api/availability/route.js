@@ -10,32 +10,36 @@ async function fetchSquareAvailability(date, guestData) {
     const locationId = getLocationId()
 
     // Extract service and technician info from guest data
-    const serviceVariationIds = []
-    const teamMemberIds = []
+    // IMPORTANT: Each guest's services should be separate segments, not de-duplicated
+    // This ensures Square checks availability for ALL guests simultaneously
+    const guestSegments = [] // Array of { serviceVariationId, teamMemberId }
     let hasAnyStaffSelection = false
 
     if (Array.isArray(guestData)) {
       for (const guest of guestData) {
-        // Collect service variation IDs
+        const guestTechnicianId = guest.technician?.id === 'any' ? null : guest.technician?.id
+
+        if (guest.technician?.id === 'any') {
+          hasAnyStaffSelection = true
+        }
+
+        // Each service for each guest is a separate segment
         if (guest.services) {
           for (const service of guest.services) {
             const variationId = service.squareVariationId || service.id
-            if (variationId && !serviceVariationIds.includes(variationId)) {
-              serviceVariationIds.push(variationId)
+            if (variationId) {
+              guestSegments.push({
+                serviceVariationId: variationId,
+                teamMemberId: guestTechnicianId
+              })
             }
-          }
-        }
-
-        // Collect technician IDs
-        if (guest.technician?.id === 'any') {
-          hasAnyStaffSelection = true
-        } else if (guest.technician?.id) {
-          if (!teamMemberIds.includes(guest.technician.id)) {
-            teamMemberIds.push(guest.technician.id)
           }
         }
       }
     }
+
+    // For backwards compatibility - collect unique service IDs for validation
+    const serviceVariationIds = [...new Set(guestSegments.map(s => s.serviceVariationId))]
 
     // If no services selected yet, we can't search availability properly
     // Fall back to getting all team member availability
@@ -52,16 +56,17 @@ async function fetchSquareAvailability(date, guestData) {
     const startAt = new Date(date + 'T00:00:00')
     const endAt = new Date(date + 'T23:59:59')
 
-    // Build segment filters for each service
-    const segmentFilters = serviceVariationIds.map(serviceId => {
+    // Build segment filters for each guest's service (not de-duplicated)
+    // This ensures Square knows we need multiple concurrent appointments
+    const segmentFilters = guestSegments.map(segment => {
       const filter = {
-        serviceVariationId: serviceId
+        serviceVariationId: segment.serviceVariationId
       }
 
-      // If specific technicians selected (not "Any Staff"), filter by them
-      if (teamMemberIds.length > 0 && !hasAnyStaffSelection) {
+      // If this guest selected a specific technician (not "Any Staff"), filter by them
+      if (segment.teamMemberId) {
         filter.teamMemberIdFilter = {
-          any: teamMemberIds
+          any: [segment.teamMemberId]
         }
       }
 
@@ -93,9 +98,9 @@ async function fetchSquareAvailability(date, guestData) {
         const segmentMatch = errorField.match(/segment_filters\[(\d+)\]/)
         const segmentIndex = segmentMatch ? parseInt(segmentMatch[1]) : -1
 
-        // Find which service caused the error
+        // Find which service caused the error using guestSegments
         let problemService = 'Unknown service'
-        if (segmentIndex >= 0 && segmentIndex < serviceVariationIds.length) {
+        if (segmentIndex >= 0 && segmentIndex < guestSegments.length) {
           // Try to find the service name from guest data
           if (Array.isArray(guestData)) {
             let serviceCount = 0
@@ -150,11 +155,15 @@ async function fetchSquareAvailability(date, guestData) {
       return parseTime(a) - parseTime(b)
     })
 
+    // Count unique technicians
+    const uniqueTechnicianIds = [...new Set(guestSegments.map(s => s.teamMemberId).filter(Boolean))]
+
     return {
       availableSlots: sortedSlots,
       totalAvailabilities: response.availabilities?.length || 0,
-      technicianCount: teamMemberIds.length,
-      hasAnyStaff: hasAnyStaffSelection
+      technicianCount: uniqueTechnicianIds.length,
+      hasAnyStaff: hasAnyStaffSelection,
+      segmentCount: guestSegments.length
     }
   } catch (error) {
     console.error('Error fetching Square availability:', error)
