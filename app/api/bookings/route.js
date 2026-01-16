@@ -20,7 +20,7 @@ async function findAvailableTechnician(selectedDate, selectedTime, duration) {
     })
 
     // Get all team members
-    const teamResponse = await client.team.searchTeamMembers({
+    const teamResponse = await client.teamMembers.search({
       query: {
         filter: {
           locationIds: [locationId],
