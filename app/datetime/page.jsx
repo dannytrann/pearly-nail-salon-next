@@ -9,7 +9,7 @@ import Calendar from '@/components/Calendar'
 
 export default function DateTimePage() {
   const router = useRouter()
-  const { groupSize, guests, selectedDate, selectedTime, setDateTime } = useBookingStore()
+  const { groupSize, guests, selectedDate, selectedTime, setDateTime, updateGuestTechnician } = useBookingStore()
 
   const [date, setDate] = useState(selectedDate || '')
   const [availableSlots, setAvailableSlots] = useState([])
@@ -20,6 +20,7 @@ export default function DateTimePage() {
   const [searchingNextAvailable, setSearchingNextAvailable] = useState(false)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [unavailableTechInfo, setUnavailableTechInfo] = useState(null)
+  const [alternativeTechnicians, setAlternativeTechnicians] = useState([])
 
   useEffect(() => {
     // Redirect if no bookings
@@ -84,6 +85,7 @@ export default function DateTimePage() {
     setSelectedSlot(null)
     setError('')
     setNextAvailableDate(null)
+    setAlternativeTechnicians([])
 
     if (!newDate) {
       setAvailableSlots([])
@@ -116,8 +118,13 @@ export default function DateTimePage() {
             date: newDate,
             guestAvailability: data.guestAvailabilityCounts
           })
+          // Store alternative technician suggestions
+          if (data.alternativeTechnicians && data.alternativeTechnicians.length > 0) {
+            setAlternativeTechnicians(data.alternativeTechnicians)
+          }
         } else {
           setUnavailableTechInfo(null)
+          setAlternativeTechnicians([])
         }
 
         // If no slots available, find the next available date
@@ -142,6 +149,39 @@ export default function DateTimePage() {
     if (nextAvailableDate) {
       handleDateChange(nextAvailableDate)
     }
+  }
+
+  // Handle selecting an alternative technician
+  const handleSelectAlternative = async (alternative) => {
+    // Find which guest had the unavailable technician
+    const unavailableTech = unavailableTechInfo?.technicians?.[0]
+    if (!unavailableTech) return
+
+    const guestIndex = unavailableTech.guestIndex
+
+    // Update the guest's technician in the store
+    updateGuestTechnician(guestIndex, {
+      id: alternative.technician.id,
+      name: alternative.technician.name,
+      squareTeamMemberId: alternative.technician.squareTeamMemberId || alternative.technician.id
+    })
+
+    // Clear the unavailable info and alternatives
+    setUnavailableTechInfo(null)
+    setAlternativeTechnicians([])
+
+    // Navigate to the alternative's next available date
+    handleDateChange(alternative.nextAvailableDate)
+  }
+
+  // Format date for alternative options (e.g., "Jan 20")
+  const formatShortDate = (dateString) => {
+    if (!dateString) return ''
+    const date = new Date(dateString + 'T00:00:00')
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric'
+    })
   }
 
   const handleContinue = () => {
@@ -225,38 +265,57 @@ export default function DateTimePage() {
                         <div className="space-y-4">
                           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-left">
                             <h4 className="font-semibold text-amber-900 mb-2">Technician Unavailable</h4>
-                            <p className="text-sm text-amber-800 mb-3">
+                            <p className="text-sm text-amber-800">
                               {unavailableTechInfo.technicians.map((tech, idx) => (
                                 <span key={idx}>
                                   <span className="font-semibold">{tech.technician.name}</span> (Guest {tech.guestNumber})
                                   {idx < unavailableTechInfo.technicians.length - 1 && ', '}
                                 </span>
-                              ))} {unavailableTechInfo.technicians.length === 1 ? 'has' : 'have'} no availability on this date.
+                              ))} {unavailableTechInfo.technicians.length === 1 ? 'is' : 'are'} not available in the next 30 days.
                             </p>
-                            {unavailableTechInfo.guestAvailability && (
-                              <div className="text-xs text-amber-700 space-y-1 mb-3">
-                                {unavailableTechInfo.guestAvailability.map((guest, idx) => (
-                                  <div key={idx}>
-                                    Guest {guest.guestNumber} ({guest.technician || 'Any Staff'}): {guest.availableSlots > 0 ? `${guest.availableSlots} slots` : 'No slots'}
-                                  </div>
+                          </div>
+
+                          {/* Alternative Technicians */}
+                          {alternativeTechnicians.length > 0 && (
+                            <div className="bg-white border border-gray-200 rounded-lg p-4 text-left">
+                              <h4 className="font-semibold text-neutral-850 mb-3">Here are other available technicians:</h4>
+                              <div className="space-y-2">
+                                {alternativeTechnicians.map((alt, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={() => handleSelectAlternative(alt)}
+                                    className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-primary/5 border border-gray-200 hover:border-primary rounded-lg transition-all group"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-semibold text-primary">
+                                        {alt.technician.name.substring(0, 2).toUpperCase()}
+                                      </div>
+                                      <div className="text-left">
+                                        <p className="font-medium text-neutral-850 group-hover:text-primary">
+                                          {alt.technician.name}
+                                        </p>
+                                        <p className="text-xs text-gray-500">
+                                          Available {formatShortDate(alt.nextAvailableDate)} ({alt.slotsAvailable} slot{alt.slotsAvailable !== 1 ? 's' : ''})
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <svg className="w-5 h-5 text-gray-400 group-hover:text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                  </button>
                                 ))}
                               </div>
-                            )}
-                          </div>
-                          <button
-                            onClick={() => router.push('/services')}
-                            className="w-full bg-primary text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-dark transition-colors"
-                          >
-                            Change Technician Selection
-                          </button>
-                          {nextAvailableDate && (
+                            </div>
+                          )}
+
+                          <div className="pt-2 border-t border-gray-100">
                             <button
-                              onClick={handleGoToNextAvailable}
+                              onClick={() => router.push('/services')}
                               className="w-full bg-neutral-850 text-white px-6 py-3 rounded-lg font-semibold hover:bg-neutral-900 transition-colors"
                             >
-                              Try {formatNextAvailableDate(nextAvailableDate)}
+                              Choose Different Technician
                             </button>
-                          )}
+                          </div>
                         </div>
                       ) : nextAvailableDate ? (
                         <>
