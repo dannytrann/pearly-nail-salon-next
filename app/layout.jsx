@@ -39,7 +39,7 @@ export default function RootLayout({ children }) {
                 <div>
                   <h3 className="text-lg font-heading text-white mb-4 tracking-wide">Contact Us</h3>
                   <p className="text-gray-300 text-sm">Phone: (250) 941-7870</p>
-                  <p className="text-gray-300 text-sm">Email: info@pearlynails.com</p>
+                  <p className="text-gray-300 text-sm">Email: scp.deng@gmail.com</p>
                 </div>
                 <div>
                   <h3 className="text-lg font-heading text-white mb-4 tracking-wide">Location</h3>

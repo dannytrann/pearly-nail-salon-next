@@ -131,10 +131,10 @@ export default function HomePage() {
                       (250) 941-7870
                     </a>
                     <a
-                      href="mailto:info@pearlynails.com"
+                      href="mailto:scp.deng@gmail.com"
                       className="text-gray-500 hover:text-primary transition-colors text-sm"
                     >
-                      info@pearlynails.com
+                      scp.deng@gmail.com
                     </a>
                   </div>
                 </div>
