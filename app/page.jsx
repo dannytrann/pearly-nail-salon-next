@@ -2,6 +2,28 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
+import { motion } from 'framer-motion'
+
+// Animation variants
+const fadeUp = {
+  hidden: { opacity: 0, y: 30 },
+  visible: { opacity: 1, y: 0 }
+}
+
+const fadeIn = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1 }
+}
+
+const staggerContainer = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.15
+    }
+  }
+}
 
 export default function HomePage() {
   return (
@@ -16,24 +38,45 @@ export default function HomePage() {
         <div className="absolute bottom-10 left-10 w-48 h-48 bg-secondary/5 rounded-full blur-3xl"></div>
 
         <div className="relative container-custom py-16 md:py-24">
-          <div className="text-center max-w-3xl mx-auto">
+          <motion.div
+            className="text-center max-w-3xl mx-auto"
+            initial="hidden"
+            animate="visible"
+            variants={staggerContainer}
+          >
             {/* Welcome text */}
-            <p className="text-primary font-medium text-sm tracking-[0.3em] uppercase mb-4">
+            <motion.p
+              className="text-primary font-medium text-sm tracking-[0.3em] uppercase mb-4"
+              variants={fadeUp}
+              transition={{ duration: 0.6 }}
+            >
               Welcome to
-            </p>
+            </motion.p>
 
             {/* Main heading */}
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-heading tracking-wide mb-6">
+            <motion.h1
+              className="text-4xl md:text-5xl lg:text-6xl font-heading tracking-wide mb-6"
+              variants={fadeUp}
+              transition={{ duration: 0.6 }}
+            >
               Pearly Nails & Spa
-            </h1>
+            </motion.h1>
 
             {/* Tagline */}
-            <p className="text-gray-500 text-lg md:text-xl mb-10 max-w-xl mx-auto leading-relaxed">
+            <motion.p
+              className="text-gray-500 text-lg md:text-xl mb-10 max-w-xl mx-auto leading-relaxed"
+              variants={fadeUp}
+              transition={{ duration: 0.6 }}
+            >
               Your destination for beautiful nails and relaxing spa treatments in the heart of Comox, BC
-            </p>
+            </motion.p>
 
             {/* CTA Buttons */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <motion.div
+              className="flex flex-col sm:flex-row gap-4 justify-center items-center"
+              variants={fadeUp}
+              transition={{ duration: 0.6 }}
+            >
               <Link
                 href="/group-booking"
                 className="group inline-flex items-center justify-center gap-3 bg-primary hover:bg-primary-dark text-white px-10 py-4 rounded-full font-semibold transition-all duration-300 text-base tracking-wide shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 min-w-[200px]"
@@ -58,10 +101,14 @@ export default function HomePage() {
                 </svg>
                 My Appointment
               </a>
-            </div>
+            </motion.div>
 
             {/* View Services Link */}
-            <div className="mt-8">
+            <motion.div
+              className="mt-8"
+              variants={fadeUp}
+              transition={{ duration: 0.6 }}
+            >
               <Link
                 href="/menu"
                 className="inline-flex items-center gap-2 text-gray-500 hover:text-primary transition-colors text-sm font-medium"
@@ -71,8 +118,8 @@ export default function HomePage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </Link>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </div>
 
         {/* Decorative divider */}
@@ -84,9 +131,19 @@ export default function HomePage() {
         <div className="container-custom">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
             {/* Left: Info Cards */}
-            <div className="space-y-6">
+            <motion.div
+              className="space-y-6"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-50px" }}
+              variants={staggerContainer}
+            >
               {/* Location Card */}
-              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+              <motion.div
+                className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow"
+                variants={fadeUp}
+                transition={{ duration: 0.5 }}
+              >
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0 w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
                     <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -112,10 +169,14 @@ export default function HomePage() {
                     </a>
                   </div>
                 </div>
-              </div>
+              </motion.div>
 
               {/* Contact Card */}
-              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+              <motion.div
+                className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow"
+                variants={fadeUp}
+                transition={{ duration: 0.5 }}
+              >
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0 w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
                     <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -138,10 +199,14 @@ export default function HomePage() {
                     </a>
                   </div>
                 </div>
-              </div>
+              </motion.div>
 
               {/* Hours Card */}
-              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+              <motion.div
+                className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow"
+                variants={fadeUp}
+                transition={{ duration: 0.5 }}
+              >
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0 w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
                     <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -167,11 +232,18 @@ export default function HomePage() {
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
 
             {/* Right: Map */}
-            <div className="relative">
+            <motion.div
+              className="relative"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-50px" }}
+              variants={fadeUp}
+              transition={{ duration: 0.6, delay: 0.2 }}
+            >
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden h-full min-h-[400px] lg:min-h-full">
                 <iframe
                   src="https://www.google.com/maps?q=215+Port+Augusta+St,+Comox,+BC+V9M+3M9,+Canada&output=embed"
@@ -185,7 +257,7 @@ export default function HomePage() {
                   className="w-full h-full"
                 ></iframe>
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
       </section>
@@ -193,15 +265,43 @@ export default function HomePage() {
       {/* Quick Services Preview */}
       <section className="py-16 md:py-20">
         <div className="container-custom">
-          <div className="text-center mb-12">
-            <p className="text-primary font-medium text-sm tracking-[0.2em] uppercase mb-3">Our Services</p>
-            <h2 className="text-3xl md:text-4xl font-heading tracking-wide mb-4">What We Offer</h2>
-            <p className="text-gray-500 max-w-xl mx-auto">
+          <motion.div
+            className="text-center mb-12"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-50px" }}
+            variants={staggerContainer}
+          >
+            <motion.p
+              className="text-primary font-medium text-sm tracking-[0.2em] uppercase mb-3"
+              variants={fadeUp}
+              transition={{ duration: 0.5 }}
+            >
+              Our Services
+            </motion.p>
+            <motion.h2
+              className="text-3xl md:text-4xl font-heading tracking-wide mb-4"
+              variants={fadeUp}
+              transition={{ duration: 0.5 }}
+            >
+              What We Offer
+            </motion.h2>
+            <motion.p
+              className="text-gray-500 max-w-xl mx-auto"
+              variants={fadeUp}
+              transition={{ duration: 0.5 }}
+            >
               From classic manicures to luxurious spa treatments, we have everything you need for beautiful nails and relaxation.
-            </p>
-          </div>
+            </motion.p>
+          </motion.div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 max-w-4xl mx-auto">
+          <motion.div
+            className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 max-w-4xl mx-auto"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-50px" }}
+            variants={staggerContainer}
+          >
             {/* Service Cards */}
             <ServicePreviewCard
               icon={
@@ -239,9 +339,16 @@ export default function HomePage() {
               title="Kid's Services"
               description="Ages 12 & under"
             />
-          </div>
+          </motion.div>
 
-          <div className="text-center mt-10">
+          <motion.div
+            className="text-center mt-10"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={fadeUp}
+            transition={{ duration: 0.5, delay: 0.3 }}
+          >
             <Link
               href="/menu"
               className="inline-flex items-center gap-2 text-primary hover:text-primary-dark font-semibold transition-colors"
@@ -251,21 +358,39 @@ export default function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </Link>
-          </div>
+          </motion.div>
         </div>
       </section>
 
       {/* Bottom CTA Section */}
       <section className="py-16 md:py-20 bg-gradient-to-br from-primary/5 via-white to-secondary/5">
         <div className="container-custom text-center">
-          <div className="max-w-2xl mx-auto">
-            <h2 className="text-3xl md:text-4xl font-heading tracking-wide mb-4">
+          <motion.div
+            className="max-w-2xl mx-auto"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-50px" }}
+            variants={staggerContainer}
+          >
+            <motion.h2
+              className="text-3xl md:text-4xl font-heading tracking-wide mb-4"
+              variants={fadeUp}
+              transition={{ duration: 0.5 }}
+            >
               Ready to Treat Yourself?
-            </h2>
-            <p className="text-gray-500 mb-8">
+            </motion.h2>
+            <motion.p
+              className="text-gray-500 mb-8"
+              variants={fadeUp}
+              transition={{ duration: 0.5 }}
+            >
               Book your appointment today and let us pamper you with our professional nail and spa services.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            </motion.p>
+            <motion.div
+              className="flex flex-col sm:flex-row gap-4 justify-center"
+              variants={fadeUp}
+              transition={{ duration: 0.5 }}
+            >
               <Link
                 href="/group-booking"
                 className="inline-flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white px-10 py-4 rounded-full font-semibold transition-all duration-300 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5"
@@ -284,8 +409,8 @@ export default function HomePage() {
                 </svg>
                 Call Us
               </a>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </div>
       </section>
     </div>
@@ -294,15 +419,17 @@ export default function HomePage() {
 
 function ServicePreviewCard({ icon, title, description }) {
   return (
-    <Link
-      href="/menu"
-      className="group bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-lg hover:border-primary/30 transition-all duration-300 text-center"
-    >
-      <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center text-primary mx-auto mb-4 group-hover:bg-primary group-hover:text-white transition-all duration-300">
-        {icon}
-      </div>
-      <h3 className="font-heading text-lg mb-1 group-hover:text-primary transition-colors">{title}</h3>
-      <p className="text-gray-400 text-sm">{description}</p>
-    </Link>
+    <motion.div variants={fadeUp} transition={{ duration: 0.5 }}>
+      <Link
+        href="/menu"
+        className="group bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-lg hover:border-primary/30 transition-all duration-300 text-center block h-full"
+      >
+        <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center text-primary mx-auto mb-4 group-hover:bg-primary group-hover:text-white transition-all duration-300">
+          {icon}
+        </div>
+        <h3 className="font-heading text-lg mb-1 group-hover:text-primary transition-colors">{title}</h3>
+        <p className="text-gray-400 text-sm">{description}</p>
+      </Link>
+    </motion.div>
   )
 }
