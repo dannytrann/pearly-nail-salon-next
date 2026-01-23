@@ -413,14 +413,19 @@ async function fetchTimeSlots() {
 }
 
 export async function POST(request) {
-  try {
-    const { date, guests, findAlternatives } = await request.json()
-    const useSquareBookings = process.env.USE_SQUARE_BOOKINGS === 'true'
+  console.log('=== AVAILABILITY API CALLED ===')
+  console.log(`Server time: ${new Date().toISOString()}`)
 
-    console.log(`[ENV DEBUG] USE_SQUARE_BOOKINGS: ${process.env.USE_SQUARE_BOOKINGS}`)
-    console.log(`[ENV DEBUG] SQUARE_ENVIRONMENT: ${process.env.SQUARE_ENVIRONMENT}`)
-    console.log(`[ENV DEBUG] Has ACCESS_TOKEN: ${!!process.env.SQUARE_ACCESS_TOKEN}`)
-    console.log(`[ENV DEBUG] LOCATION_ID: ${process.env.SQUARE_LOCATION_ID}`)
+  try {
+    const body = await request.json()
+    const { date, guests, findAlternatives } = body
+
+    console.log(`[REQUEST] Date: ${date}, Guests: ${guests?.length || 0}`)
+    console.log(`[ENV] USE_SQUARE_BOOKINGS: ${process.env.USE_SQUARE_BOOKINGS}`)
+    console.log(`[ENV] SQUARE_ENVIRONMENT: ${process.env.SQUARE_ENVIRONMENT}`)
+
+    const useSquareBookings = process.env.USE_SQUARE_BOOKINGS === 'true'
+    console.log(`[ENV] useSquareBookings resolved to: ${useSquareBookings}`)
 
     if (useSquareBookings) {
       // Use Square's searchAvailability API - properly checks team member schedules
