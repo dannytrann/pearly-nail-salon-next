@@ -66,37 +66,22 @@ function isWithinBusinessHours(timeSlot, businessHours) {
   return slotMinutes >= startMinutes && slotMinutes <= lastMinutes
 }
 
-// Business timezone (Comox, BC is Pacific Time)
-const TIMEZONE_OFFSET = '-08:00' // PST (use -07:00 for PDT during daylight saving)
-
-// Get the current timezone offset for Pacific Time (handles DST automatically)
-function getPacificOffset(date) {
-  // Create a date formatter for Pacific timezone
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Vancouver',
-    timeZoneName: 'shortOffset'
-  })
-  const parts = formatter.formatToParts(new Date(date + 'T12:00:00Z'))
-  const offsetPart = parts.find(p => p.type === 'timeZoneName')
-  // Convert "GMT-8" or "GMT-7" to "-08:00" or "-07:00"
-  const match = offsetPart?.value?.match(/GMT([+-])(\d+)/)
-  if (match) {
-    const sign = match[1]
-    const hours = match[2].padStart(2, '0')
-    return `${sign}${hours}:00`
-  }
-  return '-08:00' // Default to PST
-}
-
 // Query availability for a single guest's services with their technician
 async function fetchGuestAvailability(client, locationId, date, guest, guestIndex) {
-  // Use Pacific timezone explicitly to ensure consistent behavior across servers
-  const tzOffset = getPacificOffset(date)
-  const startAt = new Date(date + 'T00:00:00' + tzOffset)
-  const endAt = new Date(date + 'T23:59:59' + tzOffset)
+  // Comox, BC is in Pacific Time: PST (UTC-8) in winter, PDT (UTC-7) in summer
+  // DST runs from 2nd Sunday in March to 1st Sunday in November
+  const dateObj = new Date(date + 'T12:00:00Z')
+  const month = dateObj.getUTCMonth() // 0-11
+  const isPDT = month >= 2 && month <= 9 // March (2) through October (9) - rough DST period
+  const tzOffset = isPDT ? '-07:00' : '-08:00'
 
-  console.log(`[TIMEZONE DEBUG] Date: ${date}, Offset: ${tzOffset}`)
+  // Create date range in Pacific timezone
+  const startAt = new Date(`${date}T00:00:00${tzOffset}`)
+  const endAt = new Date(`${date}T23:59:59${tzOffset}`)
+
+  console.log(`[TIMEZONE DEBUG] Date: ${date}, Month: ${month}, isPDT: ${isPDT}, Offset: ${tzOffset}`)
   console.log(`[TIMEZONE DEBUG] startAt: ${startAt.toISOString()}, endAt: ${endAt.toISOString()}`)
+  console.log(`[TIMEZONE DEBUG] Server time now: ${new Date().toISOString()}`)
 
   const technicianId = guest.technician?.id === 'any' ? null : guest.technician?.id
 
