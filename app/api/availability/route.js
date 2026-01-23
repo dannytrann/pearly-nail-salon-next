@@ -117,18 +117,22 @@ async function fetchGuestAvailability(client, locationId, date, guest, guestInde
 
   console.log(`Guest ${guestIndex + 1} (${guest.technician?.name || 'Any'}): ${response.availabilities?.length || 0} availabilities`)
 
-  // Extract time slots from response
+  // Extract time slots from response - convert to Pacific timezone
   const slots = new Set()
   if (response.availabilities) {
     for (const availability of response.availabilities) {
       if (availability.startAt) {
+        // Convert UTC time to Pacific timezone for display
         const startTime = new Date(availability.startAt)
-        const hours = startTime.getHours()
-        const minutes = startTime.getMinutes()
+        const pacificTime = new Date(startTime.toLocaleString('en-US', { timeZone: 'America/Vancouver' }))
+        const hours = pacificTime.getHours()
+        const minutes = pacificTime.getMinutes()
         const period = hours >= 12 ? 'PM' : 'AM'
         const displayHours = hours % 12 || 12
         const displayMinutes = String(minutes).padStart(2, '0')
-        slots.add(`${displayHours}:${displayMinutes} ${period}`)
+        const slot = `${displayHours}:${displayMinutes} ${period}`
+        console.log(`[SLOT] UTC: ${availability.startAt} -> Pacific: ${slot}`)
+        slots.add(slot)
       }
     }
   }
