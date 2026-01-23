@@ -95,6 +95,9 @@ async function fetchGuestAvailability(client, locationId, date, guest, guestInde
   const startAt = new Date(date + 'T00:00:00' + tzOffset)
   const endAt = new Date(date + 'T23:59:59' + tzOffset)
 
+  console.log(`[TIMEZONE DEBUG] Date: ${date}, Offset: ${tzOffset}`)
+  console.log(`[TIMEZONE DEBUG] startAt: ${startAt.toISOString()}, endAt: ${endAt.toISOString()}`)
+
   const technicianId = guest.technician?.id === 'any' ? null : guest.technician?.id
 
   // Build segment filters for this guest's services
@@ -428,6 +431,11 @@ export async function POST(request) {
   try {
     const { date, guests, findAlternatives } = await request.json()
     const useSquareBookings = process.env.USE_SQUARE_BOOKINGS === 'true'
+
+    console.log(`[ENV DEBUG] USE_SQUARE_BOOKINGS: ${process.env.USE_SQUARE_BOOKINGS}`)
+    console.log(`[ENV DEBUG] SQUARE_ENVIRONMENT: ${process.env.SQUARE_ENVIRONMENT}`)
+    console.log(`[ENV DEBUG] Has ACCESS_TOKEN: ${!!process.env.SQUARE_ACCESS_TOKEN}`)
+    console.log(`[ENV DEBUG] LOCATION_ID: ${process.env.SQUARE_LOCATION_ID}`)
 
     if (useSquareBookings) {
       // Use Square's searchAvailability API - properly checks team member schedules
