@@ -2,64 +2,13 @@ import { NextResponse } from 'next/server'
 import { getSquareClient, getLocationId } from '@/lib/squareClient'
 import { randomUUID } from 'crypto'
 
-// Find an available technician for the given time slot
-async function findAvailableTechnician(selectedDate, selectedTime, duration) {
+// Find an available technician for the given time slot using Square's searchAvailability
+async function findAvailableTechnician(selectedDate, selectedTime, duration, excludeTechnicianIds = [], serviceIds = []) {
   try {
     const client = getSquareClient()
     const locationId = getLocationId()
 
-    // Convert date to ISO format for Square API
-    const startDate = new Date(selectedDate + 'T00:00:00')
-    const endDate = new Date(selectedDate + 'T23:59:59')
-
-    // Get all bookings for the day
-    const bookingsResponse = await client.bookings.list({
-      locationId: locationId,
-      startAtMin: startDate.toISOString(),
-      startAtMax: endDate.toISOString()
-    })
-
-    // Get all team members
-    const teamResponse = await client.teamMembers.search({
-      query: {
-        filter: {
-          locationIds: [locationId],
-          status: 'ACTIVE'
-        }
-      }
-    })
-
-    const teamMembers = teamResponse.teamMembers || []
-    if (teamMembers.length === 0) {
-      throw new Error('No team members available')
-    }
-
-    // Build a map of technician -> booked time slots
-    const technicianBookings = new Map()
-    if (bookingsResponse.bookings) {
-      for (const booking of bookingsResponse.bookings) {
-        if (booking.startAt && booking.appointmentSegments) {
-          for (const segment of booking.appointmentSegments) {
-            const techId = segment.teamMemberId
-            const bookingStart = new Date(booking.startAt)
-            const bookingEnd = new Date(bookingStart)
-            bookingEnd.setMinutes(bookingEnd.getMinutes() + (segment.durationMinutes || 30))
-
-            if (techId) {
-              if (!technicianBookings.has(techId)) {
-                technicianBookings.set(techId, [])
-              }
-              technicianBookings.get(techId).push({
-                start: bookingStart,
-                end: bookingEnd
-              })
-            }
-          }
-        }
-      }
-    }
-
-    // Parse the selected time (handle both 12-hour and 24-hour formats)
+    // Parse the selected time to create start/end range for availability search
     const requestedStart = new Date(selectedDate + 'T00:00:00')
 
     if (selectedTime.includes('AM') || selectedTime.includes('PM')) {
@@ -74,17 +23,144 @@ async function findAvailableTechnician(selectedDate, selectedTime, duration) {
       const [hours, minutes] = selectedTime.split(':')
       requestedStart.setHours(parseInt(hours), parseInt(minutes), 0, 0)
     }
+
+    // Search window: from requested time to 1 minute later (to find exact slot)
+    const searchStart = new Date(requestedStart)
+    const searchEnd = new Date(requestedStart)
+    searchEnd.setMinutes(searchEnd.getMinutes() + 1)
+
+    // Build the availability query
+    const availabilityQuery = {
+      query: {
+        filter: {
+          locationId: locationId,
+          startAtRange: {
+            startAt: searchStart.toISOString(),
+            endAt: searchEnd.toISOString()
+          },
+          segmentFilters: [{
+            serviceVariationId: serviceIds[0] || 'any',
+            teamMemberIdFilter: {
+              any: excludeTechnicianIds.length > 0 ? undefined : []
+            }
+          }]
+        }
+      }
+    }
+
+    // Use Square's searchAvailability to find actually available team members
+    const availabilityResponse = await client.bookings.searchAvailability(availabilityQuery)
+
+    const availabilities = availabilityResponse.availabilities || []
+    const excludeSet = new Set(excludeTechnicianIds)
+
+    // Find the first available slot that matches our requested time and isn't excluded
+    for (const slot of availabilities) {
+      const slotStart = new Date(slot.startAt)
+      // Check if this slot matches our requested time (within a minute)
+      if (Math.abs(slotStart.getTime() - requestedStart.getTime()) < 60000) {
+        for (const segment of slot.appointmentSegments || []) {
+          const teamMemberId = segment.teamMemberId
+          if (teamMemberId && !excludeSet.has(teamMemberId)) {
+            // Get team member name
+            try {
+              const teamMemberResponse = await client.teamMembers.retrieve(teamMemberId)
+              const member = teamMemberResponse.teamMember
+              return {
+                id: teamMemberId,
+                name: `${member?.givenName || ''} ${member?.familyName || ''}`.trim() || 'Staff Member'
+              }
+            } catch {
+              return {
+                id: teamMemberId,
+                name: 'Staff Member'
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Fallback: If searchAvailability doesn't return results, use the old method
+    // but only select from team members who are actually working
+    console.log('searchAvailability returned no matching slots, falling back to manual check')
+
+    // Get team members with their bookings
+    const teamResponse = await client.teamMembers.search({
+      query: {
+        filter: {
+          locationIds: [locationId],
+          status: 'ACTIVE'
+        }
+      }
+    })
+
+    const teamMembers = teamResponse.teamMembers || []
+    if (teamMembers.length === 0) {
+      throw new Error('No team members available')
+    }
+
+    // Get all bookings for the day to check conflicts
+    const dayStart = new Date(selectedDate + 'T00:00:00')
+    const dayEnd = new Date(selectedDate + 'T23:59:59')
+
+    const bookingsResponse = await client.bookings.list({
+      locationId: locationId,
+      startAtMin: dayStart.toISOString(),
+      startAtMax: dayEnd.toISOString()
+    })
+
+    // Build a set of team members who have ANY booking on this day (meaning they're working)
+    const workingTeamMemberIds = new Set()
+    const technicianBookings = new Map()
+
+    if (bookingsResponse.bookings) {
+      for (const booking of bookingsResponse.bookings) {
+        if (booking.startAt && booking.appointmentSegments) {
+          for (const segment of booking.appointmentSegments) {
+            const techId = segment.teamMemberId
+            if (techId) {
+              workingTeamMemberIds.add(techId)
+
+              const bookingStart = new Date(booking.startAt)
+              const bookingEnd = new Date(bookingStart)
+              bookingEnd.setMinutes(bookingEnd.getMinutes() + (segment.durationMinutes || 30))
+
+              if (!technicianBookings.has(techId)) {
+                technicianBookings.set(techId, [])
+              }
+              technicianBookings.get(techId).push({
+                start: bookingStart,
+                end: bookingEnd
+              })
+            }
+          }
+        }
+      }
+    }
+
     const requestedEnd = new Date(requestedStart)
     requestedEnd.setMinutes(requestedEnd.getMinutes() + duration)
 
-    // Find a technician that is available at the requested time
+    // Only consider team members who are working today (have at least one booking)
+    // This prevents assigning to technicians who aren't scheduled
     for (const member of teamMembers) {
+      // Skip if not working today (no bookings = not scheduled)
+      if (!workingTeamMemberIds.has(member.id)) {
+        console.log(`Skipping ${member.givenName} - not working today (no bookings)`)
+        continue
+      }
+
+      // Skip if already assigned in this booking session
+      if (excludeSet.has(member.id)) {
+        continue
+      }
+
       const techBookings = technicianBookings.get(member.id) || []
 
       // Check if this time slot conflicts with any existing bookings
       let isAvailable = true
       for (const booking of techBookings) {
-        // Check for overlap
         if (requestedStart < booking.end && requestedEnd > booking.start) {
           isAvailable = false
           break
@@ -121,7 +197,7 @@ function parse12HourTime(timeStr) {
 }
 
 // Create booking in Square
-async function createSquareBooking(guest, selectedDate, selectedTime, contactInfo) {
+async function createSquareBooking(guest, selectedDate, selectedTime, contactInfo, excludeTechnicianIds = []) {
   try {
     const client = getSquareClient()
     const locationId = getLocationId()
@@ -178,10 +254,14 @@ async function createSquareBooking(guest, selectedDate, selectedTime, contactInf
 
     // Handle "Any Staff" selection - auto-assign available technician
     if (!teamMemberId || teamMemberId === 'any') {
+      // Extract service IDs for availability search
+      const serviceIds = guest.services.map(s => s.squareVariationId || s.id)
       const availableTech = await findAvailableTechnician(
         selectedDate,
         selectedTime,
-        guest.totalDuration || 30
+        guest.totalDuration || 30,
+        excludeTechnicianIds,
+        serviceIds
       )
       teamMemberId = availableTech.id
       console.log(`Auto-assigned technician: ${availableTech.name} (${availableTech.id})`)
@@ -200,6 +280,17 @@ async function createSquareBooking(guest, selectedDate, selectedTime, contactInf
       serviceVariationVersion: BigInt(1)
     }))
 
+    // Build customer note with guest name and special requests
+    let customerNote = ''
+    if (guest.guestName) {
+      customerNote = `Guest: ${guest.guestName}`
+    }
+    if (contactInfo.specialRequests) {
+      customerNote = customerNote
+        ? `${customerNote}\n${contactInfo.specialRequests}`
+        : contactInfo.specialRequests
+    }
+
     // Create the booking
     const bookingRequest = {
       idempotencyKey: randomUUID(),
@@ -207,7 +298,7 @@ async function createSquareBooking(guest, selectedDate, selectedTime, contactInf
         locationId: locationId,
         startAt: startDate.toISOString(),
         customerId: customerId,
-        customerNote: contactInfo.specialRequests || '',
+        customerNote: customerNote,
         appointmentSegments: appointmentSegments.length > 0
           ? appointmentSegments
           : [{
@@ -223,7 +314,8 @@ async function createSquareBooking(guest, selectedDate, selectedTime, contactInf
       bookingId: response.booking.id,
       status: response.booking.status,
       startAt: response.booking.startAt,
-      customerId: customerId
+      customerId: customerId,
+      teamMemberId: teamMemberId
     }
   } catch (error) {
     console.error('Square booking error:', error)
@@ -249,10 +341,33 @@ export async function POST(request) {
     let source = 'mock'
 
     if (useSquareBookings) {
-      // Create Square bookings for each guest (no mock fallback)
-      const squareBookings = await Promise.all(
-        guests.map(guest => createSquareBooking(guest, selectedDate, selectedTime, contactInfo))
-      )
+      // Track assigned technicians for smart "Any Staff" distribution
+      const assignedTechnicianIds = new Set()
+
+      // Add explicitly selected technicians first (not "any")
+      for (const guest of guests) {
+        if (guest.technician?.id && guest.technician.id !== 'any') {
+          const techId = guest.technician.squareTeamMemberId || guest.technician.id
+          assignedTechnicianIds.add(techId)
+        }
+      }
+
+      // Process each guest sequentially to ensure proper technician distribution
+      const squareBookings = []
+      for (const guest of guests) {
+        const booking = await createSquareBooking(
+          guest,
+          selectedDate,
+          selectedTime,
+          contactInfo,
+          Array.from(assignedTechnicianIds)
+        )
+        squareBookings.push(booking)
+        // Track the assigned technician for "Any Staff" distribution
+        if (booking.teamMemberId) {
+          assignedTechnicianIds.add(booking.teamMemberId)
+        }
+      }
 
       bookingIds = squareBookings.map(b => b.bookingId)
       source = 'square'
@@ -265,7 +380,7 @@ export async function POST(request) {
 
     // Log guest details
     guests.forEach((guest, index) => {
-      console.log(`\nGuest ${guest.guestNumber}:`)
+      console.log(`\nGuest ${guest.guestNumber}${guest.guestName ? ` (${guest.guestName})` : ''}:`)
       console.log('  Services:', guest.services.map(s => s.name).join(', '))
       console.log('  Technician:', guest.technician?.name || 'Any available')
       console.log('  Total Price: $', guest.totalPrice)

@@ -84,19 +84,14 @@ async function fetchGuestAvailability(client, locationId, date, guest, guestInde
   console.log(`[TIMEZONE DEBUG] Server time now: ${new Date().toISOString()}`)
 
   const technicianId = guest.technician?.id === 'any' ? null : guest.technician?.id
+  console.log(`[TECHNICIAN DEBUG] Guest ${guestIndex + 1}: technicianId=${technicianId}, name=${guest.technician?.name}`)
 
-  // Build segment filters for this guest's services
-  const segmentFilters = guest.services.map(service => {
-    const filter = {
-      serviceVariationId: service.squareVariationId || service.id
-    }
-    if (technicianId) {
-      filter.teamMemberIdFilter = {
-        any: [technicianId]
-      }
-    }
-    return filter
-  })
+  // ALWAYS query without technician filter first to get all availability
+  // Then filter client-side for the specific technician
+  // This avoids Square's restrictive service-team member assignment checks
+  const segmentFilters = guest.services.map(service => ({
+    serviceVariationId: service.squareVariationId || service.id
+  }))
 
   const searchRequest = {
     query: {
@@ -115,13 +110,39 @@ async function fetchGuestAvailability(client, locationId, date, guest, guestInde
 
   const response = await client.bookings.searchAvailability(searchRequest)
 
-  console.log(`Guest ${guestIndex + 1} (${guest.technician?.name || 'Any'}): ${response.availabilities?.length || 0} availabilities`)
+  console.log(`Guest ${guestIndex + 1}: ${response.availabilities?.length || 0} total availabilities from Square`)
+
+  // Log which team members are available
+  if (response.availabilities && response.availabilities.length > 0) {
+    const availableTeamMembers = new Set()
+    for (const avail of response.availabilities) {
+      for (const segment of avail.appointmentSegments || []) {
+        if (segment.teamMemberId) {
+          availableTeamMembers.add(segment.teamMemberId)
+        }
+      }
+    }
+    console.log(`[DEBUG] Team members with availability: ${[...availableTeamMembers].join(', ')}`)
+    if (technicianId) {
+      console.log(`[DEBUG] Looking for technician ID: ${technicianId}`)
+      console.log(`[DEBUG] Is technician in available set? ${availableTeamMembers.has(technicianId)}`)
+    }
+  }
 
   // Extract time slots from response - convert to Pacific timezone
+  // If a specific technician is requested, only include slots where they're available
   const slots = new Set()
   if (response.availabilities) {
     for (const availability of response.availabilities) {
       if (availability.startAt) {
+        // If technician specified, check if this slot has that technician
+        if (technicianId) {
+          const hasTech = availability.appointmentSegments?.some(seg => seg.teamMemberId === technicianId)
+          if (!hasTech) {
+            continue // Skip this slot - requested technician not available
+          }
+        }
+
         // Convert UTC time to Pacific timezone for display
         const startTime = new Date(availability.startAt)
         const pacificTime = new Date(startTime.toLocaleString('en-US', { timeZone: 'America/Vancouver' }))
@@ -136,6 +157,8 @@ async function fetchGuestAvailability(client, locationId, date, guest, guestInde
       }
     }
   }
+
+  console.log(`Guest ${guestIndex + 1} (${guest.technician?.name || 'Any'}): ${slots.size} filtered slots`)
 
   return slots
 }

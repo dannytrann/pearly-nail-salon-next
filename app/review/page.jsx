@@ -47,7 +47,7 @@ export default function ReviewPage() {
               <div key={index} className="bg-white rounded-lg shadow-md p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xl font-heading text-gray-800">
-                    Guest {guest.guestNumber}
+                    Guest {guest.guestNumber}{guest.guestName ? `: ${guest.guestName}` : ''}
                   </h3>
                   <button
                     onClick={() => handleEditGuest(index)}

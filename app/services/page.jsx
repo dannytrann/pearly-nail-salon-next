@@ -16,7 +16,8 @@ export default function ServicesPage() {
     guests,
     setCurrentGuestIndex,
     updateGuestServices,
-    updateGuestTechnician
+    updateGuestTechnician,
+    updateGuestName
   } = useBookingStore()
 
   const [services, setServices] = useState([])
@@ -25,8 +26,9 @@ export default function ServicesPage() {
   const [loading, setLoading] = useState(true)
   const [selectedServices, setSelectedServices] = useState([])
   const [selectedTechnician, setSelectedTechnician] = useState(null)
+  const [guestName, setGuestName] = useState('')
   // New: track which step we're on for current guest
-  const [step, setStep] = useState('services') // 'services' or 'technician'
+  const [step, setStep] = useState('name') // 'name' or 'services' or 'technician'
 
   useEffect(() => {
     // Redirect if no group size selected
@@ -54,6 +56,7 @@ export default function ServicesPage() {
     if (currentGuest) {
       setSelectedServices(currentGuest.services || [])
       setSelectedTechnician(currentGuest.technician)
+      setGuestName(currentGuest.guestName || '')
     }
   }, [groupSize, currentGuestIndex, guests, router])
 
@@ -73,7 +76,12 @@ export default function ServicesPage() {
   }
 
   const handleNext = () => {
-    if (step === 'services') {
+    if (step === 'name') {
+      // Save name and move to services step
+      updateGuestName(currentGuestIndex, guestName)
+      setStep('services')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } else if (step === 'services') {
       // Save services and move to technician step
       updateGuestServices(currentGuestIndex, selectedServices)
       setStep('technician')
@@ -86,9 +94,10 @@ export default function ServicesPage() {
         setCurrentGuestIndex(currentGuestIndex + 1)
         // Reset for next guest
         const nextGuest = guests[currentGuestIndex + 1]
+        setGuestName(nextGuest?.guestName || '')
         setSelectedServices(nextGuest?.services || [])
         setSelectedTechnician(nextGuest?.technician || null)
-        setStep('services') // Reset to services step for next guest
+        setStep('name') // Reset to name step for next guest
         setTimeout(() => {
           window.scrollTo({ top: 0, behavior: 'smooth' })
         }, 100)
@@ -103,10 +112,15 @@ export default function ServicesPage() {
       // Go back to services step
       setStep('services')
       window.scrollTo({ top: 0, behavior: 'smooth' })
+    } else if (step === 'services') {
+      // Go back to name step
+      setStep('name')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     } else if (currentGuestIndex > 0) {
       // Go to previous guest's technician step
       setCurrentGuestIndex(currentGuestIndex - 1)
       const prevGuest = guests[currentGuestIndex - 1]
+      setGuestName(prevGuest?.guestName || '')
       setSelectedServices(prevGuest?.services || [])
       setSelectedTechnician(prevGuest?.technician || null)
       setStep('technician') // Go to technician step of previous guest
@@ -140,6 +154,9 @@ export default function ServicesPage() {
 
   // Dynamic button text based on step
   const getNextButtonText = () => {
+    if (step === 'name') {
+      return 'Choose Services'
+    }
     if (step === 'services') {
       return 'Choose Technician'
     }
@@ -147,7 +164,9 @@ export default function ServicesPage() {
   }
 
   // Dynamic disabled state based on step
-  const isNextDisabled = step === 'services'
+  const isNextDisabled = step === 'name'
+    ? guestName.trim() === ''
+    : step === 'services'
     ? selectedServices.length === 0
     : !selectedTechnician
 
@@ -165,7 +184,7 @@ export default function ServicesPage() {
             {/* Guest Progress */}
             <div className="mb-10 text-center lg:text-left">
               <h2 className="text-3xl md:text-4xl font-heading tracking-wide mb-2">
-                {step === 'services' ? 'Choose Services' : 'Choose Technician'}
+                {step === 'name' ? 'Enter Your Name' : step === 'services' ? 'Choose Services' : 'Choose Technician'}
               </h2>
               <p className="text-gray-400 tracking-wide">
                 Guest {currentGuestIndex + 1} of {groupSize}
@@ -175,9 +194,20 @@ export default function ServicesPage() {
               <div className="flex items-center justify-center lg:justify-start gap-3 mt-4">
                 <div className="flex items-center gap-2">
                   <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
-                    step === 'services' ? 'bg-primary text-white' : 'bg-primary/20 text-primary'
+                    step === 'name' ? 'bg-primary text-white' : 'bg-primary/20 text-primary'
                   }`}>
                     1
+                  </div>
+                  <span className={`text-sm ${step === 'name' ? 'text-neutral-850 font-medium' : 'text-gray-400'}`}>
+                    Name
+                  </span>
+                </div>
+                <div className="w-8 h-px bg-gray-300"></div>
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                    step === 'services' ? 'bg-primary text-white' : step === 'technician' ? 'bg-primary/20 text-primary' : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    2
                   </div>
                   <span className={`text-sm ${step === 'services' ? 'text-neutral-850 font-medium' : 'text-gray-400'}`}>
                     Services
@@ -188,7 +218,7 @@ export default function ServicesPage() {
                   <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
                     step === 'technician' ? 'bg-primary text-white' : 'bg-gray-200 text-gray-500'
                   }`}>
-                    2
+                    3
                   </div>
                   <span className={`text-sm ${step === 'technician' ? 'text-neutral-850 font-medium' : 'text-gray-400'}`}>
                     Technician
@@ -215,7 +245,27 @@ export default function ServicesPage() {
               )}
             </div>
 
-            {/* Step 1: Services by Category */}
+            {/* Step 1: Guest Name */}
+            {step === 'name' && (
+              <div className="mb-10">
+                <div className="bg-gray-50 rounded-xl p-6">
+                  <h3 className="text-lg font-heading tracking-wide mb-2">
+                    What's your name?
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-6">This helps us identify your booking</p>
+                  <input
+                    type="text"
+                    value={guestName}
+                    onChange={(e) => setGuestName(e.target.value)}
+                    placeholder="Enter your name"
+                    className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:outline-none transition-colors duration-200 text-neutral-850"
+                    autoFocus
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Services by Category */}
             {step === 'services' && (
               <div className="space-y-10 mb-10">
                 {Object.entries(categories).map(([categoryName, categoryServices]) => (
@@ -238,7 +288,7 @@ export default function ServicesPage() {
               </div>
             )}
 
-            {/* Step 2: Technician Selection */}
+            {/* Step 3: Technician Selection */}
             {step === 'technician' && (
               <div className="mb-10">
                 {/* Selected Services Summary */}
