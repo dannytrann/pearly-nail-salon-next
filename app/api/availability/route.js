@@ -2,11 +2,6 @@ import { NextResponse } from 'next/server'
 import { timeSlots } from '@/lib/mockData'
 import { getSquareClient, getLocationId } from '@/lib/squareClient'
 
-// Display name mappings for team members (same as services route)
-const TECHNICIAN_DISPLAY_NAMES = {
-  'Cheng Ping Deng': 'Simone',
-}
-
 // Business hours configuration
 // lastBookingBuffer: how many minutes before closing is the last booking allowed
 const BUSINESS_HOURS = {
@@ -27,7 +22,6 @@ function getBusinessHoursForDate(date) {
 
   const hours = BUSINESS_HOURS[dayOfWeek]
   if (hours) {
-    // Calculate last booking time (endTime minus buffer)
     const [endHour, endMin] = hours.endTime.split(':').map(Number)
     const endMinutes = endHour * 60 + endMin
     const lastBookingMinutes = endMinutes - hours.lastBookingBuffer
@@ -38,202 +32,163 @@ function getBusinessHoursForDate(date) {
     return {
       startTime: hours.startTime,
       endTime: hours.endTime,
-      lastBookingTime: lastBookingTime, // Last allowed booking time
+      lastBookingTime: lastBookingTime,
       isOpen: true
     }
   }
 
-  // Default if day not found (shouldn't happen)
   return { startTime: '09:00', endTime: '18:00', lastBookingTime: '17:00', isOpen: true }
 }
 
 // Check if a time slot is within bookable hours (up to last booking time)
 function isWithinBusinessHours(timeSlot, businessHours) {
-  // Parse the 12-hour time slot (e.g., "6:00 PM")
   const [time, period] = timeSlot.split(' ')
   let [hours, minutes] = time.split(':').map(Number)
   if (period === 'PM' && hours !== 12) hours += 12
   if (period === 'AM' && hours === 12) hours = 0
   const slotMinutes = hours * 60 + minutes
 
-  // Parse business hours (24-hour format, e.g., "09:00", "17:00")
   const [startHour, startMin] = businessHours.startTime.split(':').map(Number)
   const [lastHour, lastMin] = businessHours.lastBookingTime.split(':').map(Number)
   const startMinutes = startHour * 60 + startMin
   const lastMinutes = lastHour * 60 + lastMin
 
-  // Slot must be >= opening time and <= last booking time
   return slotMinutes >= startMinutes && slotMinutes <= lastMinutes
 }
 
-// Query availability for a single guest's services with their technician
-async function fetchGuestAvailability(client, locationId, date, guest, guestIndex) {
-  // Comox, BC is in Pacific Time: PST (UTC-8) in winter, PDT (UTC-7) in summer
-  // DST runs from 2nd Sunday in March to 1st Sunday in November
+// Convert an ISO timestamp to a display string in Pacific timezone (e.g. "10:00 AM")
+function isoToDisplaySlot(isoString) {
+  const startTime = new Date(isoString)
+  const pacificTime = new Date(startTime.toLocaleString('en-US', { timeZone: 'America/Vancouver' }))
+  const hours = pacificTime.getHours()
+  const minutes = pacificTime.getMinutes()
+  const period = hours >= 12 ? 'PM' : 'AM'
+  const displayHours = hours % 12 || 12
+  const displayMinutes = String(minutes).padStart(2, '0')
+  return `${displayHours}:${displayMinutes} ${period}`
+}
+
+// Get Pacific timezone offset for a given date
+function getPacificOffset(date) {
   const dateObj = new Date(date + 'T12:00:00Z')
   const month = dateObj.getUTCMonth() // 0-11
-  const isPDT = month >= 2 && month <= 9 // March (2) through October (9) - rough DST period
-  const tzOffset = isPDT ? '-07:00' : '-08:00'
+  const isPDT = month >= 2 && month <= 9 // March through October (rough DST)
+  return isPDT ? '-07:00' : '-08:00'
+}
 
-  // Create date range in Pacific timezone
+// Query availability for a SINGLE service on a SINGLE day.
+// If technicianId is provided, passes it to Square's team_member_id_filter
+// so Square handles technician filtering server-side (consistent results).
+async function fetchServiceAvailability(client, locationId, date, serviceVariationId, technicianId) {
+  const tzOffset = getPacificOffset(date)
   const startAt = new Date(`${date}T00:00:00${tzOffset}`)
   const endAt = new Date(`${date}T23:59:59${tzOffset}`)
 
-  console.log(`[TIMEZONE DEBUG] Date: ${date}, Month: ${month}, isPDT: ${isPDT}, Offset: ${tzOffset}`)
-  console.log(`[TIMEZONE DEBUG] startAt: ${startAt.toISOString()}, endAt: ${endAt.toISOString()}`)
-  console.log(`[TIMEZONE DEBUG] Server time now: ${new Date().toISOString()}`)
+  // Build segment filter — include technician filter if a specific one is selected
+  const segmentFilter = { serviceVariationId }
+  if (technicianId) {
+    segmentFilter.teamMemberIdFilter = { any: [technicianId] }
+  }
 
-  const technicianId = guest.technician?.id === 'any' ? null : guest.technician?.id
-  console.log(`[TECHNICIAN DEBUG] Guest ${guestIndex + 1}: technicianId=${technicianId}, name=${guest.technician?.name}`)
-
-  // ALWAYS query without technician filter first to get all availability
-  // Then filter client-side for the specific technician
-  // This avoids Square's restrictive service-team member assignment checks
-  const segmentFilters = guest.services.map(service => ({
-    serviceVariationId: service.squareVariationId || service.id
-  }))
-
-  const searchRequest = {
+  const response = await client.bookings.searchAvailability({
     query: {
       filter: {
-        locationId: locationId,
+        locationId,
         startAtRange: {
           startAt: startAt.toISOString(),
           endAt: endAt.toISOString()
         },
-        segmentFilters: segmentFilters
+        segmentFilters: [segmentFilter]
       }
     }
-  }
+  })
 
-  console.log(`Guest ${guestIndex + 1} availability request:`, JSON.stringify(searchRequest, null, 2))
-
-  const response = await client.bookings.searchAvailability(searchRequest)
-
-  console.log(`Guest ${guestIndex + 1}: ${response.availabilities?.length || 0} total availabilities from Square`)
-
-  // Log which team members are available
-  if (response.availabilities && response.availabilities.length > 0) {
-    const availableTeamMembers = new Set()
-    for (const avail of response.availabilities) {
-      for (const segment of avail.appointmentSegments || []) {
-        if (segment.teamMemberId) {
-          availableTeamMembers.add(segment.teamMemberId)
-        }
-      }
-    }
-    console.log(`[DEBUG] Team members with availability: ${[...availableTeamMembers].join(', ')}`)
-    if (technicianId) {
-      console.log(`[DEBUG] Looking for technician ID: ${technicianId}`)
-      console.log(`[DEBUG] Is technician in available set? ${availableTeamMembers.has(technicianId)}`)
-    }
-  }
-
-  // Extract time slots from response - convert to Pacific timezone
-  // If a specific technician is requested, only include slots where they're available
-  const slots = new Set()
+  const times = new Set()
   if (response.availabilities) {
-    for (const availability of response.availabilities) {
-      if (availability.startAt) {
-        // If technician specified, check if this slot has that technician
-        if (technicianId) {
-          const hasTech = availability.appointmentSegments?.some(seg => seg.teamMemberId === technicianId)
-          if (!hasTech) {
-            continue // Skip this slot - requested technician not available
-          }
-        }
-
-        // Convert UTC time to Pacific timezone for display
-        const startTime = new Date(availability.startAt)
-        const pacificTime = new Date(startTime.toLocaleString('en-US', { timeZone: 'America/Vancouver' }))
-        const hours = pacificTime.getHours()
-        const minutes = pacificTime.getMinutes()
-        const period = hours >= 12 ? 'PM' : 'AM'
-        const displayHours = hours % 12 || 12
-        const displayMinutes = String(minutes).padStart(2, '0')
-        const slot = `${displayHours}:${displayMinutes} ${period}`
-        console.log(`[SLOT] UTC: ${availability.startAt} -> Pacific: ${slot}`)
-        slots.add(slot)
+    for (const avail of response.availabilities) {
+      if (avail.startAt) {
+        times.add(avail.startAt)
       }
     }
   }
 
-  console.log(`Guest ${guestIndex + 1} (${guest.technician?.name || 'Any'}): ${slots.size} filtered slots`)
-
-  return slots
+  return times
 }
 
-// Use Square's searchAvailability API to get actual technician availability
-// For group bookings, we query each guest separately and find the intersection
+// Search availability per-GUEST, then intersect across guests.
+// For each guest:
+//   1. Query each of their services independently (one call per service — fast)
+//   2. If the guest selected a specific technician, filter to only slots with that tech
+//   3. Intersect all service results for that guest
+// Then intersect across all guests to find times where everyone can be served.
 async function fetchSquareAvailability(date, guestData) {
   try {
     const client = getSquareClient()
     const locationId = getLocationId()
 
     if (!Array.isArray(guestData) || guestData.length === 0) {
-      return {
-        availableSlots: [],
-        message: 'No guest data provided'
-      }
+      return { availableSlots: [], message: 'No guest data provided' }
     }
 
-    // Check if any guest has services
     const hasServices = guestData.some(g => g.services && g.services.length > 0)
     if (!hasServices) {
-      return {
-        availableSlots: [],
-        message: 'Please select services first'
-      }
+      return { availableSlots: [], message: 'Please select services first' }
     }
 
-    console.log('=== GROUP AVAILABILITY REQUEST ===')
-    console.log('Date:', date)
-    console.log('Number of guests:', guestData.length)
-
-    // For group bookings with multiple guests, query each guest's availability separately
-    // then find the intersection (times where ALL guests can be served)
+    // Query each guest's availability in parallel
     const guestAvailabilities = await Promise.all(
-      guestData.map((guest, index) =>
-        fetchGuestAvailability(client, locationId, date, guest, index)
-          .catch(error => {
-            console.error(`Error fetching availability for guest ${index + 1}:`, error.message)
-            // If a service isn't bookable, return empty set
-            if (error.body?.errors?.[0]?.detail?.includes('not bookable')) {
-              const serviceName = guest.services?.[0]?.name || 'Unknown service'
-              throw new Error(`"${serviceName}" is not available for online booking.`)
-            }
-            return new Set()
-          })
-      )
+      guestData.map(async (guest) => {
+        const services = guest.services || []
+        if (services.length === 0) return new Set()
+
+        const technicianId = guest.technician?.id === 'any' ? null : guest.technician?.id
+
+        // Query each service for this guest in parallel
+        const serviceResults = await Promise.all(
+          services.map(service =>
+            fetchServiceAvailability(
+              client, locationId, date,
+              service.squareVariationId || service.id,
+              technicianId
+            ).catch(error => {
+              console.error(`Error fetching availability for service ${service.name}:`, error.message)
+              if (error.body?.errors?.[0]?.detail?.includes('not bookable')) {
+                throw new Error(`"${service.name}" is not available for online booking.`)
+              }
+              return new Set()
+            })
+          )
+        )
+
+        // If any service has no availability for this guest, guest can't book
+        if (serviceResults.some(s => s.size === 0)) return new Set()
+
+        // Intersect all service times for this guest
+        let guestTimes = new Set(serviceResults[0])
+        for (let i = 1; i < serviceResults.length; i++) {
+          guestTimes = new Set([...guestTimes].filter(t => serviceResults[i].has(t)))
+        }
+        return guestTimes
+      })
     )
 
-    // Find the intersection of all guests' available times
-    let commonSlots
-    if (guestAvailabilities.length === 1) {
-      commonSlots = guestAvailabilities[0]
-    } else {
-      // Start with first guest's slots, then intersect with each subsequent guest
-      commonSlots = new Set(guestAvailabilities[0])
-      for (let i = 1; i < guestAvailabilities.length; i++) {
-        const guestSlots = guestAvailabilities[i]
-        commonSlots = new Set([...commonSlots].filter(slot => guestSlots.has(slot)))
-      }
+    // Intersect across all guests
+    let validTimes = new Set(guestAvailabilities[0])
+    for (let i = 1; i < guestAvailabilities.length; i++) {
+      validTimes = new Set([...validTimes].filter(t => guestAvailabilities[i].has(t)))
     }
 
-    console.log('Common slots across all guests:', commonSlots.size)
-
-    // Get business hours for the selected date to filter results
-    const businessHours = getBusinessHoursForDate(date)
-    console.log('Business hours for', date, ':', businessHours)
+    // Convert ISO timestamps to display format
+    const displaySlots = [...validTimes].map(iso => isoToDisplaySlot(iso))
+    const uniqueSlots = [...new Set(displaySlots)]
 
     // Filter by business hours
-    const filteredSlots = [...commonSlots].filter(slot =>
+    const businessHours = getBusinessHoursForDate(date)
+    const filteredSlots = uniqueSlots.filter(slot =>
       isWithinBusinessHours(slot, businessHours)
     )
 
-    console.log('After business hours filter:', filteredSlots.length)
-
-    // Sort the time slots
+    // Sort chronologically
     const sortedSlots = filteredSlots.sort((a, b) => {
       const parseTime = (timeStr) => {
         const [time, period] = timeStr.split(' ')
@@ -245,184 +200,37 @@ async function fetchSquareAvailability(date, guestData) {
       return parseTime(a) - parseTime(b)
     })
 
-    // Identify which technicians have no availability
-    const unavailableTechnicians = guestData
-      .map((guest, index) => ({
-        guestIndex: index,
-        guestNumber: index + 1,
-        technician: guest.technician,
-        hasAvailability: guestAvailabilities[index].size > 0
-      }))
-      .filter(g => !g.hasAvailability && g.technician?.id !== 'any')
+    // If no common times found, report ALL guests with specific technicians as changeable.
+    // Don't rely on individual per-guest availability — Square's parallel results can be
+    // inconsistent, and any specific technician pick could be the bottleneck.
+    if (sortedSlots.length === 0) {
+      const specificTechGuests = guestData
+        .map((guest, index) => ({
+          guestIndex: index,
+          guestNumber: guest.guestNumber || index + 1,
+          guestName: guest.guestName || `Guest ${index + 1}`,
+          technician: guest.technician,
+          hasAvailability: guestAvailabilities[index].size > 0
+        }))
+        .filter(g => g.technician?.id && g.technician.id !== 'any')
 
-    // Count unique technicians
-    const uniqueTechnicianIds = guestData
-      .map(g => g.technician?.id)
-      .filter(id => id && id !== 'any')
-    const hasAnyStaffSelection = guestData.some(g => g.technician?.id === 'any')
+      return {
+        availableSlots: [],
+        unavailableGuests: specificTechGuests.length > 0 ? specificTechGuests : undefined,
+        message: specificTechGuests.length > 0
+          ? 'No common times for your selected technicians on this date'
+          : 'No availability on this date'
+      }
+    }
 
     return {
       availableSlots: sortedSlots,
       totalAvailabilities: sortedSlots.length,
-      technicianCount: new Set(uniqueTechnicianIds).size,
-      hasAnyStaff: hasAnyStaffSelection,
-      guestCount: guestData.length,
-      unavailableTechnicians: unavailableTechnicians.length > 0 ? unavailableTechnicians : undefined,
-      guestAvailabilityCounts: guestData.map((guest, i) => ({
-        guestNumber: i + 1,
-        technician: guest.technician?.name,
-        availableSlots: guestAvailabilities[i].size
-      }))
+      guestCount: guestData.length
     }
   } catch (error) {
     console.error('Error fetching Square availability:', error)
     throw error
-  }
-}
-
-// Find alternative technicians when the selected one is unavailable for 30+ days
-async function findAlternativeTechnicians(client, locationId, unavailableGuestInfo, allGuests, maxDaysToCheck = 14) {
-  const alternatives = []
-
-  try {
-    // Get all team members
-    const teamResponse = await client.teamMembers.search({
-      query: {
-        filter: {
-          locationIds: [locationId],
-          status: 'ACTIVE'
-        }
-      }
-    })
-
-    const teamMembers = teamResponse.teamMembers || []
-    const unavailableTechId = unavailableGuestInfo.technician?.id
-
-    // Filter out the unavailable technician and technicians already selected by other guests
-    const otherGuestTechIds = allGuests
-      .filter((_, idx) => idx !== unavailableGuestInfo.guestIndex)
-      .map(g => g.technician?.id)
-      .filter(id => id && id !== 'any')
-
-    const availableTechs = teamMembers.filter(m =>
-      m.id !== unavailableTechId && !otherGuestTechIds.includes(m.id)
-    )
-
-    console.log(`Checking ${availableTechs.length} alternative technicians...`)
-
-    // Check each alternative technician's availability
-    for (const tech of availableTechs.slice(0, 5)) { // Check up to 5 alternatives
-      const techName = `${tech.givenName || ''} ${tech.familyName || ''}`.trim()
-      const displayName = TECHNICIAN_DISPLAY_NAMES[techName] || techName || 'Team Member'
-
-      // Find next available date for this technician
-      let checkDate = new Date()
-      checkDate.setDate(checkDate.getDate() + 1) // Start from tomorrow
-
-      for (let i = 0; i < maxDaysToCheck; i++) {
-        const dateString = checkDate.toISOString().split('T')[0]
-
-        try {
-          // Create a modified guest with this alternative technician
-          const modifiedGuest = {
-            ...allGuests[unavailableGuestInfo.guestIndex],
-            technician: { id: tech.id, name: displayName }
-          }
-
-          // Check if this tech has availability on this date
-          const slots = await fetchGuestAvailability(client, locationId, dateString, modifiedGuest, 0)
-
-          if (slots.size > 0) {
-            // Get business hours to filter
-            const businessHours = getBusinessHoursForDate(dateString)
-            const filteredSlots = [...slots].filter(s => isWithinBusinessHours(s, businessHours))
-
-            if (filteredSlots.length > 0) {
-              // For single guest bookings, we found availability
-              if (allGuests.length === 1) {
-                alternatives.push({
-                  technician: { id: tech.id, name: displayName, squareTeamMemberId: tech.id },
-                  nextAvailableDate: dateString,
-                  daysAway: i + 1,
-                  slotsAvailable: filteredSlots.length
-                })
-                break
-              }
-
-              // For group bookings, verify other guests can also book on this date
-              let allGuestsCanBook = true
-              for (let gIdx = 0; gIdx < allGuests.length; gIdx++) {
-                if (gIdx === unavailableGuestInfo.guestIndex) continue
-                const otherSlots = await fetchGuestAvailability(client, locationId, dateString, allGuests[gIdx], gIdx)
-                const otherFiltered = [...otherSlots].filter(s => isWithinBusinessHours(s, businessHours))
-                // Find intersection
-                const commonSlots = filteredSlots.filter(s => otherFiltered.includes(s))
-                if (commonSlots.length === 0) {
-                  allGuestsCanBook = false
-                  break
-                }
-              }
-
-              if (allGuestsCanBook) {
-                alternatives.push({
-                  technician: { id: tech.id, name: displayName, squareTeamMemberId: tech.id },
-                  nextAvailableDate: dateString,
-                  daysAway: i + 1,
-                  slotsAvailable: filteredSlots.length
-                })
-                break // Found availability for this tech, move to next
-              }
-            }
-          }
-        } catch (err) {
-          // Skip this date/tech combo on error
-        }
-
-        checkDate.setDate(checkDate.getDate() + 1)
-      }
-    }
-
-    // Also add "Any Staff" option if not already selected
-    const anyStaffSelected = allGuests.some(g => g.technician?.id === 'any')
-    if (!anyStaffSelected) {
-      let checkDate = new Date()
-      checkDate.setDate(checkDate.getDate() + 1)
-
-      for (let i = 0; i < maxDaysToCheck; i++) {
-        const dateString = checkDate.toISOString().split('T')[0]
-
-        const modifiedGuest = {
-          ...allGuests[unavailableGuestInfo.guestIndex],
-          technician: { id: 'any', name: 'Any Staff' }
-        }
-
-        const slots = await fetchGuestAvailability(client, locationId, dateString, modifiedGuest, 0)
-        const businessHours = getBusinessHoursForDate(dateString)
-        const filteredSlots = [...slots].filter(s => isWithinBusinessHours(s, businessHours))
-
-        if (filteredSlots.length > 0) {
-          alternatives.push({
-            technician: { id: 'any', name: 'Any Staff' },
-            nextAvailableDate: dateString,
-            daysAway: i + 1,
-            slotsAvailable: filteredSlots.length,
-            isAnyStaff: true
-          })
-          break
-        }
-
-        checkDate.setDate(checkDate.getDate() + 1)
-      }
-    }
-
-    // Sort by soonest available
-    alternatives.sort((a, b) => a.daysAway - b.daysAway)
-
-    // Return top 3
-    return alternatives.slice(0, 3)
-  } catch (error) {
-    console.error('Error finding alternative technicians:', error)
-    return []
   }
 }
 
@@ -440,41 +248,14 @@ async function fetchTimeSlots() {
 }
 
 export async function POST(request) {
-  console.log('=== AVAILABILITY API CALLED ===')
-  console.log(`Server time: ${new Date().toISOString()}`)
-
   try {
     const body = await request.json()
-    const { date, guests, findAlternatives } = body
-
-    console.log(`[REQUEST] Date: ${date}, Guests: ${guests?.length || 0}`)
-    console.log(`[ENV] USE_SQUARE_BOOKINGS: ${process.env.USE_SQUARE_BOOKINGS}`)
-    console.log(`[ENV] SQUARE_ENVIRONMENT: ${process.env.SQUARE_ENVIRONMENT}`)
+    const { date, guests } = body
 
     const useSquareBookings = process.env.USE_SQUARE_BOOKINGS === 'true'
-    console.log(`[ENV] useSquareBookings resolved to: ${useSquareBookings}`)
 
     if (useSquareBookings) {
-      // Use Square's searchAvailability API - properly checks team member schedules
       const squareData = await fetchSquareAvailability(date, guests)
-
-      // If no availability and there are unavailable technicians, find alternatives
-      let alternativeTechnicians = undefined
-      if (findAlternatives !== false && squareData.unavailableTechnicians?.length > 0 && squareData.availableSlots.length === 0) {
-        console.log('Finding alternative technicians...')
-        const client = getSquareClient()
-        const locationId = getLocationId()
-
-        // Find alternatives for the first unavailable technician
-        const unavailableTech = squareData.unavailableTechnicians[0]
-        alternativeTechnicians = await findAlternativeTechnicians(
-          client,
-          locationId,
-          unavailableTech,
-          guests
-        )
-        console.log(`Found ${alternativeTechnicians.length} alternatives`)
-      }
 
       const guestCount = Array.isArray(guests) ? guests.length : guests
       return NextResponse.json({
@@ -484,13 +265,11 @@ export async function POST(request) {
         message: squareData.message || `Found ${squareData.availableSlots.length} available slots for ${guestCount} guest(s)`,
         source: 'square',
         totalAvailabilities: squareData.totalAvailabilities,
-        unavailableTechnicians: squareData.unavailableTechnicians,
-        guestAvailabilityCounts: squareData.guestAvailabilityCounts,
-        alternativeTechnicians
+        unavailableGuests: squareData.unavailableGuests
       })
     }
 
-    // Only use mock availability if Square is explicitly disabled
+    // Mock mode fallback
     const allTimeSlots = await fetchTimeSlots()
     const availableSlots = allTimeSlots.filter((slot, index) => index % 3 !== 0)
     const guestCount = Array.isArray(guests) ? guests.length : guests

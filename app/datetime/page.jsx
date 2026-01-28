@@ -19,8 +19,8 @@ export default function DateTimePage() {
   const [nextAvailableDate, setNextAvailableDate] = useState(null)
   const [searchingNextAvailable, setSearchingNextAvailable] = useState(false)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
-  const [unavailableTechInfo, setUnavailableTechInfo] = useState(null)
-  const [alternativeTechnicians, setAlternativeTechnicians] = useState([])
+  const [unavailableGuests, setUnavailableGuests] = useState([])
+  const [allTechnicians, setAllTechnicians] = useState([])
 
   useEffect(() => {
     // Redirect if no bookings
@@ -28,6 +28,19 @@ export default function DateTimePage() {
       router.push('/group-booking')
     }
   }, [groupSize, guests, router])
+
+  // Fetch technician list and clear stale info on mount
+  useEffect(() => {
+    setUnavailableGuests([])
+    setNextAvailableDate(null)
+
+    fetch('/api/services')
+      .then(res => res.json())
+      .then(data => {
+        if (data.technicians) setAllTechnicians(data.technicians)
+      })
+      .catch(() => {})
+  }, []) // Only run on mount
 
   // Calculate totals
   const totalPrice = guests.reduce((sum, guest) =>
@@ -38,35 +51,62 @@ export default function DateTimePage() {
   const totalServices = guests.reduce((sum, guest) =>
     sum + (guest.services?.length || 0), 0)
 
+  // Split unavailable guests into those truly not available vs available but listed for context
+  const notAvailableTechs = unavailableGuests.filter(g => !g.hasAvailability)
+  const availableTechs = unavailableGuests.filter(g => g.hasAvailability)
+
   // Find the next available date starting from a given date
   const findNextAvailableDate = async (startDate) => {
     const maxDaysToCheck = 30 // Look up to 30 days ahead
+    const batchSize = 7 // Check 7 days at a time in parallel
+
     let checkDate = new Date(startDate + 'T00:00:00')
     checkDate.setDate(checkDate.getDate() + 1) // Start from the next day
 
-    for (let i = 0; i < maxDaysToCheck; i++) {
-      const dateString = checkDate.toISOString().split('T')[0]
+    // Check in batches for better performance
+    for (let batch = 0; batch < Math.ceil(maxDaysToCheck / batchSize); batch++) {
+      const batchPromises = []
+      const batchDates = []
 
-      try {
-        const response = await fetch('/api/availability', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: dateString, guests: guests })
-        })
+      // Create batch of date checks
+      for (let i = 0; i < batchSize && (batch * batchSize + i) < maxDaysToCheck; i++) {
+        const dateString = checkDate.toISOString().split('T')[0]
+        batchDates.push(dateString)
 
-        const data = await response.json()
+        batchPromises.push(
+          fetch('/api/availability', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: dateString, guests: useBookingStore.getState().guests })
+          })
+          .then(res => res.json())
+          .catch(err => {
+            console.error('Error checking date:', dateString, err)
+            return { success: false }
+          })
+        )
 
-        if (data.success && data.availableSlots && data.availableSlots.length > 0) {
-          return dateString
-        }
-      } catch (err) {
-        console.error('Error checking date:', dateString, err)
+        checkDate.setDate(checkDate.getDate() + 1)
       }
 
-      checkDate.setDate(checkDate.getDate() + 1)
+      // Check this batch in parallel
+      const results = await Promise.all(batchPromises)
+
+      // Check if any date in this batch has availability
+      for (let i = 0; i < results.length; i++) {
+        const data = results[i]
+        if (data.success && data.availableSlots && data.availableSlots.length > 0) {
+          return batchDates[i]
+        }
+      }
+
+      // Early stop: if we've checked 14 days (2 weeks) with no results, likely technician isn't working
+      if (batch >= 1) { // After checking 2 batches (14 days)
+        break
+      }
     }
 
-    return null // No availability found in the next 30 days
+    return null // No availability found
   }
 
   // Format date for "No availability until" message (e.g., "Sunday, January 18")
@@ -85,7 +125,7 @@ export default function DateTimePage() {
     setSelectedSlot(null)
     setError('')
     setNextAvailableDate(null)
-    setAlternativeTechnicians([])
+    setUnavailableGuests([])
 
     if (!newDate) {
       setAvailableSlots([])
@@ -102,7 +142,7 @@ export default function DateTimePage() {
         },
         body: JSON.stringify({
           date: newDate,
-          guests: guests
+          guests: useBookingStore.getState().guests
         })
       })
 
@@ -111,24 +151,15 @@ export default function DateTimePage() {
       if (data.success) {
         setAvailableSlots(data.availableSlots)
 
-        // Check if specific technicians are unavailable
-        if (data.unavailableTechnicians && data.unavailableTechnicians.length > 0) {
-          setUnavailableTechInfo({
-            technicians: data.unavailableTechnicians,
-            date: newDate,
-            guestAvailability: data.guestAvailabilityCounts
-          })
-          // Store alternative technician suggestions
-          if (data.alternativeTechnicians && data.alternativeTechnicians.length > 0) {
-            setAlternativeTechnicians(data.alternativeTechnicians)
-          }
+        // Track which guests/technicians are unavailable
+        if (data.unavailableGuests && data.unavailableGuests.length > 0) {
+          setUnavailableGuests(data.unavailableGuests)
         } else {
-          setUnavailableTechInfo(null)
-          setAlternativeTechnicians([])
+          setUnavailableGuests([])
         }
 
-        // If no slots available, find the next available date
-        if (data.availableSlots.length === 0) {
+        // If no slots available and no specific technician issue, find next available date
+        if (data.availableSlots.length === 0 && (!data.unavailableGuests || data.unavailableGuests.length === 0)) {
           setSearchingNextAvailable(true)
           const nextDate = await findNextAvailableDate(newDate)
           setNextAvailableDate(nextDate)
@@ -149,39 +180,6 @@ export default function DateTimePage() {
     if (nextAvailableDate) {
       handleDateChange(nextAvailableDate)
     }
-  }
-
-  // Handle selecting an alternative technician
-  const handleSelectAlternative = async (alternative) => {
-    // Find which guest had the unavailable technician
-    const unavailableTech = unavailableTechInfo?.technicians?.[0]
-    if (!unavailableTech) return
-
-    const guestIndex = unavailableTech.guestIndex
-
-    // Update the guest's technician in the store
-    updateGuestTechnician(guestIndex, {
-      id: alternative.technician.id,
-      name: alternative.technician.name,
-      squareTeamMemberId: alternative.technician.squareTeamMemberId || alternative.technician.id
-    })
-
-    // Clear the unavailable info and alternatives
-    setUnavailableTechInfo(null)
-    setAlternativeTechnicians([])
-
-    // Navigate to the alternative's next available date
-    handleDateChange(alternative.nextAvailableDate)
-  }
-
-  // Format date for alternative options (e.g., "Jan 20")
-  const formatShortDate = (dateString) => {
-    if (!dateString) return ''
-    const date = new Date(dateString + 'T00:00:00')
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric'
-    })
   }
 
   const handleContinue = () => {
@@ -213,9 +211,34 @@ export default function DateTimePage() {
           <h2 className="text-3xl md:text-4xl font-heading tracking-wide mb-2 text-center lg:text-left">
             Select Date & Time
           </h2>
-          <p className="text-gray-400 text-center lg:text-left mb-10 tracking-wide">
+          <p className="text-gray-400 text-center lg:text-left mb-2 tracking-wide">
             Choose your preferred appointment date and time
           </p>
+
+          {/* Show booking summary */}
+          {groupSize > 0 && guests.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-8">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-blue-900 mb-1">Booking for {groupSize} {groupSize === 1 ? 'guest' : 'guests'}</p>
+                  <div className="text-sm text-blue-800 space-y-1">
+                    {guests.map((guest, idx) => (
+                      <div key={idx}>
+                        <span className="font-semibold">{guest.guestName || `Guest ${guest.guestNumber}`}</span>
+                        {' · '}
+                        {guest.services.map(s => s.name).join(', ')}
+                        {' · '}
+                        Technician: {guest.technician?.name || 'Any Staff'}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-col lg:flex-row gap-8">
             {/* Main Content */}
@@ -258,67 +281,108 @@ export default function DateTimePage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="text-center py-6">
+                    <div className="py-6">
                       {searchingNextAvailable ? (
-                        <p className="text-gray-500">Finding next available date...</p>
-                      ) : unavailableTechInfo && unavailableTechInfo.technicians.length > 0 ? (
+                        <p className="text-gray-500 text-center">Finding next available date...</p>
+                      ) : unavailableGuests.length > 0 ? (
                         <div className="space-y-4">
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-left">
-                            <h4 className="font-semibold text-amber-900 mb-2">Technician Unavailable</h4>
-                            <p className="text-sm text-amber-800">
-                              {unavailableTechInfo.technicians.map((tech, idx) => (
-                                <span key={idx}>
-                                  <span className="font-semibold">{tech.technician.name}</span> (Guest {tech.guestNumber})
-                                  {idx < unavailableTechInfo.technicians.length - 1 && ', '}
-                                </span>
-                              ))} {unavailableTechInfo.technicians.length === 1 ? 'is' : 'are'} not available in the next 30 days.
-                            </p>
-                          </div>
+                          {/* Technicians that are NOT available on this date */}
+                          {notAvailableTechs.length > 0 && (
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-left">
+                              <h4 className="font-semibold text-amber-900 mb-2">
+                                {notAvailableTechs.length === 1 ? 'Technician Not Available' : 'Technicians Not Available'}
+                              </h4>
+                              <p className="text-sm text-amber-800 mb-3">
+                                The following {notAvailableTechs.length === 1 ? 'technician has' : 'technicians have'} no openings on this date:
+                              </p>
+                              <div className="space-y-3">
+                                {notAvailableTechs.map((info, idx) => {
+                                  const takenIds = guests
+                                    .filter((_, i) => i !== info.guestIndex)
+                                    .map(g => g.technician?.id)
+                                    .filter(id => id && id !== 'any')
 
-                          {/* Alternative Technicians */}
-                          {alternativeTechnicians.length > 0 && (
-                            <div className="bg-white border border-gray-200 rounded-lg p-4 text-left">
-                              <h4 className="font-semibold text-neutral-850 mb-3">Here are other available technicians:</h4>
-                              <div className="space-y-2">
-                                {alternativeTechnicians.map((alt, idx) => (
-                                  <button
-                                    key={idx}
-                                    onClick={() => handleSelectAlternative(alt)}
-                                    className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-primary/5 border border-gray-200 hover:border-primary rounded-lg transition-all group"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-semibold text-primary">
-                                        {alt.technician.name.substring(0, 2).toUpperCase()}
-                                      </div>
-                                      <div className="text-left">
-                                        <p className="font-medium text-neutral-850 group-hover:text-primary">
-                                          {alt.technician.name}
-                                        </p>
-                                        <p className="text-xs text-gray-500">
-                                          Available {formatShortDate(alt.nextAvailableDate)} ({alt.slotsAvailable} slot{alt.slotsAvailable !== 1 ? 's' : ''})
-                                        </p>
+                                  return (
+                                    <div key={idx} className="bg-white rounded-lg p-3 border border-amber-200">
+                                      <p className="text-xs text-amber-700 mb-1.5">
+                                        {info.guestName}
+                                      </p>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm text-gray-400 line-through whitespace-nowrap">
+                                          {info.technician?.name}
+                                        </span>
+                                        <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                        <select
+                                          className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                          defaultValue=""
+                                          onChange={(e) => {
+                                            const val = e.target.value
+                                            if (val === 'any') {
+                                              updateGuestTechnician(info.guestIndex, { id: 'any', name: 'Any Staff' })
+                                            } else {
+                                              const tech = allTechnicians.find(t => t.id === val)
+                                              if (tech) {
+                                                updateGuestTechnician(info.guestIndex, {
+                                                  id: tech.id,
+                                                  name: tech.name,
+                                                  squareTeamMemberId: tech.squareTeamMemberId || tech.id
+                                                })
+                                              }
+                                            }
+                                            setTimeout(() => handleDateChange(date), 50)
+                                          }}
+                                        >
+                                          <option value="" disabled>Choose technician...</option>
+                                          <option value="any">Any Staff</option>
+                                          {allTechnicians
+                                            .filter(t => t.id !== info.technician?.id && !takenIds.includes(t.id))
+                                            .map(tech => (
+                                              <option key={tech.id} value={tech.id}>{tech.name}</option>
+                                            ))
+                                          }
+                                        </select>
                                       </div>
                                     </div>
-                                    <svg className="w-5 h-5 text-gray-400 group-hover:text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Technicians that ARE available but listed for context */}
+                          {availableTechs.length > 0 && (
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-left">
+                              <div className="space-y-2">
+                                {availableTechs.map((info, idx) => (
+                                  <div key={idx} className="flex items-center gap-2 text-sm text-gray-600">
+                                    <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                     </svg>
-                                  </button>
+                                    <span><span className="font-medium">{info.technician?.name}</span> is available for {info.guestName}</span>
+                                  </div>
                                 ))}
                               </div>
                             </div>
                           )}
 
-                          <div className="pt-2 border-t border-gray-100">
-                            <button
-                              onClick={() => router.push('/services')}
-                              className="w-full bg-neutral-850 text-white px-6 py-3 rounded-lg font-semibold hover:bg-neutral-900 transition-colors"
-                            >
-                              Choose Different Technician
-                            </button>
-                          </div>
+                          {/* Or try a different date */}
+                          <button
+                            onClick={async () => {
+                              setSearchingNextAvailable(true)
+                              setUnavailableGuests([])
+                              const nextDate = await findNextAvailableDate(date)
+                              setNextAvailableDate(nextDate)
+                              setSearchingNextAvailable(false)
+                            }}
+                            className="w-full bg-white text-neutral-850 px-6 py-3 rounded-lg font-semibold border border-gray-200 hover:border-primary hover:text-primary transition-colors"
+                          >
+                            Or Find Next Available Date
+                          </button>
                         </div>
                       ) : nextAvailableDate ? (
-                        <>
+                        <div className="text-center">
                           <p className="text-gray-600 mb-4">
                             No availability until <span className="font-semibold">{formatNextAvailableDate(nextAvailableDate)}</span>.
                           </p>
@@ -328,17 +392,17 @@ export default function DateTimePage() {
                           >
                             Go to next available
                           </button>
-                        </>
+                        </div>
                       ) : (
-                        <div className="space-y-4">
+                        <div className="text-center space-y-4">
                           <p className="text-gray-600">
-                            No availability in the next 30 days. Please contact us directly.
+                            No availability found in the next 14 days. Try a different date or change your technician selection.
                           </p>
                           <button
                             onClick={() => router.push('/services')}
-                            className="w-full bg-primary text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-dark transition-colors"
+                            className="w-full bg-neutral-850 text-white px-6 py-3 rounded-lg font-semibold hover:bg-neutral-900 transition-colors"
                           >
-                            Change Technician Selection
+                            Change Technician
                           </button>
                         </div>
                       )}

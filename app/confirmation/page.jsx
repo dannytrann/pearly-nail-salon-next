@@ -12,6 +12,7 @@ export default function ConfirmationPage() {
     selectedDate,
     selectedTime,
     contactInfo,
+    assignedTechnicians,
     reset
   } = useBookingStore()
 
@@ -105,28 +106,39 @@ export default function ConfirmationPage() {
               Group Summary ({groupSize} {groupSize === 1 ? 'Person' : 'People'})
             </h3>
             <div className="space-y-4">
-              {guests.map((guest, index) => (
-                <div key={index} className="bg-gray-50 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-semibold text-gray-800">
-                      Guest {guest.guestNumber}
-                    </h4>
-                    <span className="text-primary font-semibold">
-                      ${guest.totalPrice}
-                    </span>
-                  </div>
-                  <ul className="text-sm text-gray-600 space-y-1">
-                    {guest.services.map(service => (
-                      <li key={service.id}>• {service.name}</li>
-                    ))}
-                  </ul>
-                  {guest.technician && (
+              {guests.map((guest, index) => {
+                // Find assigned technician info for this guest
+                const assignedTech = assignedTechnicians?.find(t => t.guestIndex === index)
+                // Prefer the actual assigned name from Square (resolves "Any Staff" to real person).
+                // Skip generic "Staff Member" — fall back to the guest's chosen name instead.
+                const assigned = assignedTech?.technicianName
+                const technicianName = (assigned && assigned !== 'Staff Member')
+                  ? assigned
+                  : (guest.technician?.name && guest.technician.name !== 'Any Staff')
+                    ? guest.technician.name
+                    : assigned || 'Staff Member'
+
+                return (
+                  <div key={index} className="bg-gray-50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold text-gray-800">
+                        {guest.guestName ? guest.guestName : `Guest ${guest.guestNumber}`}
+                      </h4>
+                      <span className="text-primary font-semibold">
+                        ${guest.totalPrice}
+                      </span>
+                    </div>
+                    <ul className="text-sm text-gray-600 space-y-1">
+                      {guest.services.map(service => (
+                        <li key={service.id}>• {service.name}</li>
+                      ))}
+                    </ul>
                     <p className="text-sm text-gray-600 mt-2">
-                      Technician: {guest.technician.name}
+                      Technician: {technicianName}
                     </p>
-                  )}
-                </div>
-              ))}
+                  </div>
+                )
+              })}
             </div>
           </div>
 

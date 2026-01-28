@@ -14,7 +14,8 @@ export default function ContactPage() {
     selectedDate,
     selectedTime,
     contactInfo,
-    setContactInfo
+    setContactInfo,
+    setAssignedTechnicians
   } = useBookingStore()
 
   const [summaryExpanded, setSummaryExpanded] = useState(false)
@@ -103,6 +104,10 @@ export default function ContactPage() {
       const data = await response.json()
 
       if (data.success) {
+        // Save assigned technicians if returned from API
+        if (data.assignedTechnicians) {
+          setAssignedTechnicians(data.assignedTechnicians)
+        }
         router.push('/confirmation')
       } else {
         setErrors({ submit: data.error || 'Failed to create booking' })
