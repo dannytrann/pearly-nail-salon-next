@@ -20,8 +20,8 @@ module.exports = {
         }
       },
       fontFamily: {
-        heading: ['Cormorant Garamond', 'serif'],
-        body: ['Montserrat', 'sans-serif'],
+        heading: ['Gilda Display', 'serif'],
+        body: ['Open Sans', 'sans-serif'],
       },
     },
   },

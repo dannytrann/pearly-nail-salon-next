@@ -76,19 +76,30 @@ function getPacificOffset(date) {
   return isPDT ? '-07:00' : '-08:00'
 }
 
-// Query availability for a SINGLE service on a SINGLE day.
-// If technicianId is provided, passes it to Square's team_member_id_filter
-// so Square handles technician filtering server-side (consistent results).
-async function fetchServiceAvailability(client, locationId, date, serviceVariationId, technicianId) {
+// Query availability for MULTIPLE services on a SINGLE day.
+// Services are sent as multiple segments so Square calculates TOTAL duration correctly.
+// - If technicianId is provided, passes it to Square's team_member_id_filter (server-side filtering)
+// - If technicianId is null (Any Staff), but excludeTechnicianIds and requiredCount are provided,
+//   checks that at least `requiredCount` non-excluded technicians are available at each slot
+async function fetchGuestAvailability(client, locationId, date, services, technicianId, excludeTechnicianIds = [], requiredCount = 1) {
   const tzOffset = getPacificOffset(date)
   const startAt = new Date(`${date}T00:00:00${tzOffset}`)
   const endAt = new Date(`${date}T23:59:59${tzOffset}`)
 
-  // Build segment filter — include technician filter if a specific one is selected
-  const segmentFilter = { serviceVariationId }
-  if (technicianId) {
-    segmentFilter.teamMemberIdFilter = { any: [technicianId] }
-  }
+  // Build segment filters for ALL services - this tells Square to find slots
+  // where the TOTAL duration of all services fits sequentially
+  const segmentFilters = services.map(service => {
+    const segment = { serviceVariationId: service.squareVariationId || service.id }
+    if (technicianId) {
+      segment.teamMemberIdFilter = { any: [technicianId] }
+    }
+    return segment
+  })
+
+  const totalDuration = services.reduce((sum, s) => sum + (s.duration || 0), 0)
+  console.log(`[Square Query] Services: ${services.map(s => s.name).join(' + ')} (${totalDuration} min total)`)
+  console.log(`[Square Query] Tech: ${technicianId || 'Any'}, Date: ${date}`)
+  console.log(`[Square Query] Date range: ${startAt.toISOString()} to ${endAt.toISOString()}`)
 
   const response = await client.bookings.searchAvailability({
     query: {
@@ -98,28 +109,70 @@ async function fetchServiceAvailability(client, locationId, date, serviceVariati
           startAt: startAt.toISOString(),
           endAt: endAt.toISOString()
         },
-        segmentFilters: [segmentFilter]
+        segmentFilters
       }
     }
   })
 
+  console.log(`[Square Response] Found ${response.availabilities?.length || 0} raw availabilities`)
+
+  // For "Any Staff" queries with exclusions: we need to count technicians PER TIME SLOT
+  // Each availability object represents ONE technician's availability at that time
+  if (!technicianId && excludeTechnicianIds.length > 0) {
+    // Group availabilities by start time
+    const slotTechMap = new Map() // startAt -> Set of technicianIds
+
+    if (response.availabilities) {
+      for (const avail of response.availabilities) {
+        if (!avail.startAt) continue
+
+        // Get the technician ID from the first segment
+        const techId = avail.appointmentSegments?.[0]?.teamMemberId
+        if (!techId) continue
+
+        // Skip if this technician is in the exclusion list
+        if (excludeTechnicianIds.includes(techId)) continue
+
+        // Add to the map
+        if (!slotTechMap.has(avail.startAt)) {
+          slotTechMap.set(avail.startAt, new Set())
+        }
+        slotTechMap.get(avail.startAt).add(techId)
+      }
+    }
+
+    // Filter to slots with enough available technicians
+    const times = new Set()
+    for (const [startAt, techIds] of slotTechMap) {
+      if (techIds.size >= requiredCount) {
+        times.add(startAt)
+      }
+    }
+
+    console.log(`[Square Response] After tech count filter (need ${requiredCount}): ${times.size} time slots`)
+    console.log(`[Square Response] Returning ${times.size} time slots: ${[...times].slice(0, 5).join(', ')}${times.size > 5 ? '...' : ''}`)
+
+    return times
+  }
+
+  // Simple case: specific technician or no exclusion requirements
   const times = new Set()
   if (response.availabilities) {
     for (const avail of response.availabilities) {
-      if (avail.startAt) {
-        times.add(avail.startAt)
-      }
+      if (!avail.startAt) continue
+      times.add(avail.startAt)
     }
   }
+
+  console.log(`[Square Response] Returning ${times.size} time slots: ${[...times].slice(0, 5).join(', ')}${times.size > 5 ? '...' : ''}`)
 
   return times
 }
 
 // Search availability per-GUEST, then intersect across guests.
 // For each guest:
-//   1. Query each of their services independently (one call per service — fast)
+//   1. Query ALL their services in a single call (so Square calculates total duration)
 //   2. If the guest selected a specific technician, filter to only slots with that tech
-//   3. Intersect all service results for that guest
 // Then intersect across all guests to find times where everyone can be served.
 async function fetchSquareAvailability(date, guestData) {
   try {
@@ -135,39 +188,45 @@ async function fetchSquareAvailability(date, guestData) {
       return { availableSlots: [], message: 'Please select services first' }
     }
 
+    // Collect technician IDs claimed by specific-technician guests
+    const claimedTechnicianIds = guestData
+      .filter(g => g.technician?.id && g.technician.id !== 'any')
+      .map(g => g.technician.squareTeamMemberId || g.technician.id)
+
+    // Count "Any Staff" guests — they all need distinct non-claimed technicians
+    const anyStaffGuestCount = guestData.filter(g => !g.technician?.id || g.technician.id === 'any').length
+
     // Query each guest's availability in parallel
     const guestAvailabilities = await Promise.all(
       guestData.map(async (guest) => {
         const services = guest.services || []
         if (services.length === 0) return new Set()
 
-        const technicianId = guest.technician?.id === 'any' ? null : guest.technician?.id
+        const technicianId = guest.technician?.id === 'any' ? null : (guest.technician?.squareTeamMemberId || guest.technician?.id)
 
-        // Query each service for this guest in parallel
-        const serviceResults = await Promise.all(
-          services.map(service =>
-            fetchServiceAvailability(
-              client, locationId, date,
-              service.squareVariationId || service.id,
-              technicianId
-            ).catch(error => {
-              console.error(`Error fetching availability for service ${service.name}:`, error.message)
-              if (error.body?.errors?.[0]?.detail?.includes('not bookable')) {
-                throw new Error(`"${service.name}" is not available for online booking.`)
-              }
-              return new Set()
-            })
-          )
-        )
+        console.log(`[Availability] Guest: ${guest.guestName}, Technician: ${guest.technician?.name} (ID: ${technicianId})`)
+        console.log(`[Availability] Services: ${services.map(s => `${s.name} (${s.squareVariationId || s.id})`).join(', ')}`)
 
-        // If any service has no availability for this guest, guest can't book
-        if (serviceResults.some(s => s.size === 0)) return new Set()
+        // Query ALL services for this guest in a single call
+        // This ensures Square calculates the TOTAL duration correctly
+        const guestTimes = await fetchGuestAvailability(
+          client, locationId, date,
+          services,
+          technicianId,
+          // For "Any Staff" guests: exclude claimed techs and require enough available
+          technicianId ? [] : claimedTechnicianIds,
+          technicianId ? 1 : anyStaffGuestCount
+        ).catch(error => {
+          console.error(`Error fetching availability for guest ${guest.guestName}:`, error.message)
+          // Check if any service is not bookable
+          if (error.body?.errors?.[0]?.detail?.includes('not bookable')) {
+            const serviceName = error.body?.errors?.[0]?.detail?.match(/"([^"]+)"/)?.[1] || 'A service'
+            throw new Error(`"${serviceName}" is not available for online booking.`)
+          }
+          return new Set()
+        })
 
-        // Intersect all service times for this guest
-        let guestTimes = new Set(serviceResults[0])
-        for (let i = 1; i < serviceResults.length; i++) {
-          guestTimes = new Set([...guestTimes].filter(t => serviceResults[i].has(t)))
-        }
+        console.log(`[Availability] Guest ${guest.guestName}: Found ${guestTimes.size} time slots from Square`)
         return guestTimes
       })
     )
@@ -184,9 +243,13 @@ async function fetchSquareAvailability(date, guestData) {
 
     // Filter by business hours
     const businessHours = getBusinessHoursForDate(date)
+    console.log(`[Availability] Date: ${date}, Business hours: ${businessHours.startTime}-${businessHours.lastBookingTime}`)
+    console.log(`[Availability] Slots before business hours filter: ${uniqueSlots.join(', ') || 'none'}`)
+
     const filteredSlots = uniqueSlots.filter(slot =>
       isWithinBusinessHours(slot, businessHours)
     )
+    console.log(`[Availability] Slots after business hours filter: ${filteredSlots.join(', ') || 'none'}`)
 
     // Sort chronologically
     const sortedSlots = filteredSlots.sort((a, b) => {
@@ -200,26 +263,68 @@ async function fetchSquareAvailability(date, guestData) {
       return parseTime(a) - parseTime(b)
     })
 
-    // If no common times found, report ALL guests with specific technicians as changeable.
-    // Don't rely on individual per-guest availability — Square's parallel results can be
-    // inconsistent, and any specific technician pick could be the bottleneck.
+    // If no slots after filtering, determine why and provide helpful messaging
     if (sortedSlots.length === 0) {
-      const specificTechGuests = guestData
-        .map((guest, index) => ({
-          guestIndex: index,
-          guestNumber: guest.guestNumber || index + 1,
-          guestName: guest.guestName || `Guest ${index + 1}`,
-          technician: guest.technician,
-          hasAvailability: guestAvailabilities[index].size > 0
-        }))
-        .filter(g => g.technician?.id && g.technician.id !== 'any')
+      // For single guest: simple message, no need to show "technician is available"
+      // since there are no bookable slots regardless
+      if (guestData.length === 1) {
+        const guest = guestData[0]
+        const rawSlotsExist = guestAvailabilities[0].size > 0
 
+        // If Square had slots but they were filtered out by business hours
+        if (rawSlotsExist) {
+          return {
+            availableSlots: [],
+            message: `${guest.technician?.name || 'Selected technician'} has no availability during business hours on this date`
+          }
+        }
+
+        return {
+          availableSlots: [],
+          message: `${guest.technician?.name || 'Selected technician'} is not available on this date`
+        }
+      }
+
+      // For multiple guests: determine the cause and provide helpful messaging
+      const anyStaffGuests = guestData.filter(g => !g.technician?.id || g.technician.id === 'any')
+      const specificTechGuests = guestData.filter(g => g.technician?.id && g.technician.id !== 'any')
+
+      // Check if any specific-tech guest has NO availability (they're the bottleneck)
+      const unavailableSpecificGuests = specificTechGuests
+        .map((guest, _) => {
+          const originalIndex = guestData.findIndex(g => g === guest)
+          return {
+            guestIndex: originalIndex,
+            guestNumber: guest.guestNumber || originalIndex + 1,
+            guestName: guest.guestName || `Guest ${originalIndex + 1}`,
+            technician: guest.technician,
+            hasAvailability: guestAvailabilities[originalIndex].size > 0
+          }
+        })
+        .filter(g => !g.hasAvailability)
+
+      // If specific technicians have no availability, show them as the issue
+      if (unavailableSpecificGuests.length > 0) {
+        return {
+          availableSlots: [],
+          unavailableGuests: unavailableSpecificGuests,
+          message: 'Selected technician(s) not available on this date'
+        }
+      }
+
+      // If all specific techs have availability but still no common slots,
+      // the issue is likely not enough technicians for "Any Staff" guests
+      if (anyStaffGuests.length > 0) {
+        return {
+          availableSlots: [],
+          message: `Not enough available technicians for ${guestData.length} guests on this date. Try selecting specific technicians or a different date.`
+        }
+      }
+
+      // Fallback: no common times between specific technicians
       return {
         availableSlots: [],
-        unavailableGuests: specificTechGuests.length > 0 ? specificTechGuests : undefined,
-        message: specificTechGuests.length > 0
-          ? 'No common times for your selected technicians on this date'
-          : 'No availability on this date'
+        message: 'No common times for your selected technicians on this date'
       }
     }
 

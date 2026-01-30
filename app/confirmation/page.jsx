@@ -17,6 +17,9 @@ export default function ConfirmationPage() {
   } = useBookingStore()
 
   useEffect(() => {
+    // Scroll to top on mount
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+
     // Redirect if no booking data
     if (groupSize === 0 || guests.length === 0 || !selectedDate || !selectedTime) {
       router.push('/')

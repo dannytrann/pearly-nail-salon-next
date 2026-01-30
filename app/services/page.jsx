@@ -30,6 +30,11 @@ export default function ServicesPage() {
   // New: track which step we're on for current guest
   const [step, setStep] = useState('name') // 'name' or 'services' or 'technician'
 
+  // Scroll to top on mount
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
+
   useEffect(() => {
     // Redirect if no group size selected
     if (groupSize === 0 || guests.length === 0) {
@@ -80,12 +85,16 @@ export default function ServicesPage() {
       // Save name and move to services step
       updateGuestName(currentGuestIndex, guestName)
       setStep('services')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 50)
     } else if (step === 'services') {
       // Save services and move to technician step
       updateGuestServices(currentGuestIndex, selectedServices)
       setStep('technician')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 50)
     } else {
       // Save technician and move to next guest or review
       updateGuestTechnician(currentGuestIndex, selectedTechnician)
@@ -111,11 +120,15 @@ export default function ServicesPage() {
     if (step === 'technician') {
       // Go back to services step
       setStep('services')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 50)
     } else if (step === 'services') {
       // Go back to name step
       setStep('name')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 50)
     } else if (currentGuestIndex > 0) {
       // Go to previous guest's technician step
       setCurrentGuestIndex(currentGuestIndex - 1)
@@ -257,6 +270,11 @@ export default function ServicesPage() {
                     type="text"
                     value={guestName}
                     onChange={(e) => setGuestName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && guestName.trim() !== '') {
+                        handleNext()
+                      }
+                    }}
                     placeholder="Enter your name"
                     className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:outline-none transition-colors duration-200 text-neutral-850"
                     autoFocus

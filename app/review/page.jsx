@@ -10,6 +10,9 @@ export default function ReviewPage() {
   const { groupSize, guests, setCurrentGuestIndex } = useBookingStore()
 
   useEffect(() => {
+    // Scroll to top on mount
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+
     // Redirect if no bookings
     if (groupSize === 0 || guests.length === 0) {
       router.push('/')
@@ -128,10 +131,10 @@ export default function ReviewPage() {
           </div>
 
           {/* Navigation */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-4">
             <button
               onClick={() => router.push('/services')}
-              className="btn-outline"
+              className="btn-outline w-full sm:w-auto"
             >
               Back to Services
             </button>
@@ -139,7 +142,7 @@ export default function ReviewPage() {
             <button
               onClick={handleContinue}
               disabled={guests.some(g => g.services.length === 0)}
-              className={`btn-primary ${
+              className={`btn-primary w-full sm:w-auto ${
                 guests.some(g => g.services.length === 0)
                   ? 'opacity-50 cursor-not-allowed'
                   : ''

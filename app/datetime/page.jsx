@@ -9,7 +9,7 @@ import Calendar from '@/components/Calendar'
 
 export default function DateTimePage() {
   const router = useRouter()
-  const { groupSize, guests, selectedDate, selectedTime, setDateTime, updateGuestTechnician } = useBookingStore()
+  const { groupSize, guests, selectedDate, selectedTime, setDateTime, updateGuestTechnician, setAssignedTechnicians } = useBookingStore()
 
   const [date, setDate] = useState(selectedDate || '')
   const [availableSlots, setAvailableSlots] = useState([])
@@ -17,12 +17,20 @@ export default function DateTimePage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [nextAvailableDate, setNextAvailableDate] = useState(null)
+  const [suggestedDates, setSuggestedDates] = useState([]) // Multiple date suggestions
   const [searchingNextAvailable, setSearchingNextAvailable] = useState(false)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [unavailableGuests, setUnavailableGuests] = useState([])
   const [allTechnicians, setAllTechnicians] = useState([])
+  const [availabilityMessage, setAvailabilityMessage] = useState('')
+  const [searchedNextDate, setSearchedNextDate] = useState(false)
+  const [validSlotsWithAssignments, setValidSlotsWithAssignments] = useState([])
+  const [searchedTechNames, setSearchedTechNames] = useState([]) // Tech names we searched for
 
   useEffect(() => {
+    // Scroll to top on mount
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+
     // Redirect if no bookings
     if (groupSize === 0 || guests.length === 0) {
       router.push('/group-booking')
@@ -51,17 +59,35 @@ export default function DateTimePage() {
   const totalServices = guests.reduce((sum, guest) =>
     sum + (guest.services?.length || 0), 0)
 
-  // Split unavailable guests into those truly not available vs available but listed for context
-  const notAvailableTechs = unavailableGuests.filter(g => !g.hasAvailability)
-  const availableTechs = unavailableGuests.filter(g => g.hasAvailability)
+  // For V2: all unavailableGuests are guests with specific technician selections that aren't available
+  // (V2 doesn't distinguish hasAvailability - if they're in the list, they need attention)
+  const notAvailableTechs = unavailableGuests
+  const availableTechs = [] // V2 doesn't return "available but listed for context" guests
 
-  // Find the next available date starting from a given date
-  const findNextAvailableDate = async (startDate) => {
+  // Get the technician name(s) for the "Find next available" button
+  const unavailableTechNames = [...new Set(unavailableGuests.map(g => g.technician?.name).filter(Boolean))]
+
+  // Format guests for the V2 availability API
+  const formatGuestsForAPI = (guestList) => {
+    return guestList.map(guest => ({
+      guestName: guest.guestName || `Guest ${guest.guestNumber}`,
+      services: guest.services || [],
+      technician: guest.technician,
+      totalDuration: guest.services?.reduce((sum, s) => sum + (s.duration || 0), 0) || 0
+    }))
+  }
+
+  // Find multiple available dates starting from a given date
+  // Returns an array of dates with availability (up to maxResults)
+  const findNextAvailableDates = async (startDate, maxResults = 3) => {
     const maxDaysToCheck = 30 // Look up to 30 days ahead
     const batchSize = 7 // Check 7 days at a time in parallel
 
     let checkDate = new Date(startDate + 'T00:00:00')
     checkDate.setDate(checkDate.getDate() + 1) // Start from the next day
+
+    const currentGuests = useBookingStore.getState().guests
+    const availableDates = []
 
     // Check in batches for better performance
     for (let batch = 0; batch < Math.ceil(maxDaysToCheck / batchSize); batch++) {
@@ -74,10 +100,10 @@ export default function DateTimePage() {
         batchDates.push(dateString)
 
         batchPromises.push(
-          fetch('/api/availability', {
+          fetch('/api/availability/v2', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: dateString, guests: useBookingStore.getState().guests })
+            body: JSON.stringify({ date: dateString, guests: formatGuestsForAPI(currentGuests) })
           })
           .then(res => res.json())
           .catch(err => {
@@ -92,21 +118,34 @@ export default function DateTimePage() {
       // Check this batch in parallel
       const results = await Promise.all(batchPromises)
 
-      // Check if any date in this batch has availability
+      // Collect all dates with availability from this batch
       for (let i = 0; i < results.length; i++) {
         const data = results[i]
         if (data.success && data.availableSlots && data.availableSlots.length > 0) {
-          return batchDates[i]
+          availableDates.push({
+            date: batchDates[i],
+            slotCount: data.availableSlots.length
+          })
+          // Stop if we have enough results
+          if (availableDates.length >= maxResults) {
+            return availableDates
+          }
         }
       }
 
       // Early stop: if we've checked 14 days (2 weeks) with no results, likely technician isn't working
-      if (batch >= 1) { // After checking 2 batches (14 days)
+      if (batch >= 1 && availableDates.length === 0) {
         break
       }
     }
 
-    return null // No availability found
+    return availableDates // Return whatever we found (could be empty or less than maxResults)
+  }
+
+  // Legacy function for backwards compatibility
+  const findNextAvailableDate = async (startDate) => {
+    const results = await findNextAvailableDates(startDate, 1)
+    return results.length > 0 ? results[0].date : null
   }
 
   // Format date for "No availability until" message (e.g., "Sunday, January 18")
@@ -125,7 +164,12 @@ export default function DateTimePage() {
     setSelectedSlot(null)
     setError('')
     setNextAvailableDate(null)
+    setSuggestedDates([])
     setUnavailableGuests([])
+    setAvailabilityMessage('')
+    setSearchedNextDate(false)
+    setValidSlotsWithAssignments([])
+    setSearchedTechNames([])
 
     if (!newDate) {
       setAvailableSlots([])
@@ -135,14 +179,15 @@ export default function DateTimePage() {
     // Fetch available time slots
     setLoading(true)
     try {
-      const response = await fetch('/api/availability', {
+      const currentGuests = useBookingStore.getState().guests
+      const response = await fetch('/api/availability/v2', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           date: newDate,
-          guests: useBookingStore.getState().guests
+          guests: formatGuestsForAPI(currentGuests)
         })
       })
 
@@ -150,6 +195,9 @@ export default function DateTimePage() {
 
       if (data.success) {
         setAvailableSlots(data.availableSlots)
+        setAvailabilityMessage(data.message || '')
+        // Store the full slot info with technician assignments
+        setValidSlotsWithAssignments(data.validSlots || [])
 
         // Track which guests/technicians are unavailable
         if (data.unavailableGuests && data.unavailableGuests.length > 0) {
@@ -186,6 +234,18 @@ export default function DateTimePage() {
     if (!date || !selectedSlot) {
       setError('Please select both a date and time')
       return
+    }
+
+    // Find the assignments for the selected time slot
+    const selectedSlotInfo = validSlotsWithAssignments.find(s => s.displayTime === selectedSlot)
+    if (selectedSlotInfo?.assignments) {
+      // Convert assignments to the format expected by the booking store
+      const techAssignments = selectedSlotInfo.assignments.map(a => ({
+        guestIndex: a.clientIndex,
+        guestName: a.guestName,
+        technicianId: a.technicianId
+      }))
+      setAssignedTechnicians(techAssignments)
     }
 
     setDateTime(date, selectedSlot)
@@ -284,6 +344,94 @@ export default function DateTimePage() {
                     <div className="py-6">
                       {searchingNextAvailable ? (
                         <p className="text-gray-500 text-center">Finding next available date...</p>
+                      ) : searchedNextDate && suggestedDates.length > 0 ? (
+                        <div className="text-center space-y-4">
+                          <p className="text-gray-600 font-medium">Available dates:</p>
+                          <div className="space-y-2">
+                            {suggestedDates.map((suggestion) => (
+                              <button
+                                key={suggestion.date}
+                                onClick={() => handleDateChange(suggestion.date)}
+                                className="w-full bg-white text-neutral-850 px-4 py-3 rounded-lg font-medium border border-gray-200 hover:border-primary hover:bg-primary/5 transition-colors text-left flex justify-between items-center"
+                              >
+                                <span>{formatNextAvailableDate(suggestion.date)}</span>
+                                <span className="text-sm text-gray-500">{suggestion.slotCount} slot{suggestion.slotCount !== 1 ? 's' : ''}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : searchedNextDate && suggestedDates.length === 0 ? (
+                        <div className="text-center space-y-4">
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                            <p className="text-amber-800">
+                              {searchedTechNames.length === 1
+                                ? `${searchedTechNames[0]} is not available in the next 30 days.`
+                                : searchedTechNames.length > 1
+                                  ? `Your selected technicians are not available in the next 30 days.`
+                                  : `No availability found in the next 30 days.`}
+                            </p>
+                          </div>
+                          {/* Show technician change options if there are specific techs selected */}
+                          {searchedTechNames.length > 0 && (
+                            <div className="bg-white border border-gray-200 rounded-lg p-4 text-left">
+                              <p className="text-sm text-gray-600 mb-3">Choose a different technician:</p>
+                              {guests.map((guest, idx) => {
+                                if (!guest.technician?.id || guest.technician.id === 'any') return null
+                                const takenIds = guests
+                                  .filter((_, i) => i !== idx)
+                                  .map(g => g.technician?.id)
+                                  .filter(id => id && id !== 'any')
+                                return (
+                                  <div key={idx} className="flex items-center gap-2 mb-2 last:mb-0">
+                                    <span className="text-sm text-gray-400 line-through whitespace-nowrap min-w-[80px]">
+                                      {guest.technician?.name}
+                                    </span>
+                                    <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                    <select
+                                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                                      defaultValue=""
+                                      onChange={(e) => {
+                                        const val = e.target.value
+                                        if (val === 'any') {
+                                          updateGuestTechnician(idx, { id: 'any', name: 'Any Staff' })
+                                        } else {
+                                          const tech = allTechnicians.find(t => t.id === val)
+                                          if (tech) {
+                                            updateGuestTechnician(idx, {
+                                              id: tech.id,
+                                              name: tech.name,
+                                              squareTeamMemberId: tech.squareTeamMemberId || tech.id
+                                            })
+                                          }
+                                        }
+                                        setSearchedNextDate(false)
+                                        setNextAvailableDate(null)
+                                        setTimeout(() => handleDateChange(date), 50)
+                                      }}
+                                    >
+                                      <option value="" disabled>Choose technician...</option>
+                                      <option value="any">Any Staff</option>
+                                      {allTechnicians
+                                        .filter(t => t.id !== guest.technician?.id && !takenIds.includes(t.id))
+                                        .map(tech => (
+                                          <option key={tech.id} value={tech.id}>{tech.name}</option>
+                                        ))
+                                      }
+                                    </select>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                          <button
+                            onClick={() => router.push('/services')}
+                            className="w-full bg-neutral-850 text-white px-6 py-3 rounded-lg font-semibold hover:bg-neutral-900 transition-colors"
+                          >
+                            Back to Services
+                          </button>
+                        </div>
                       ) : unavailableGuests.length > 0 ? (
                         <div className="space-y-4">
                           {/* Technicians that are NOT available on this date */}
@@ -337,13 +485,28 @@ export default function DateTimePage() {
                                           <option value="" disabled>Choose technician...</option>
                                           <option value="any">Any Staff</option>
                                           {allTechnicians
-                                            .filter(t => t.id !== info.technician?.id && !takenIds.includes(t.id))
+                                            .filter(t => {
+                                              // Exclude current unavailable tech and already-taken techs
+                                              if (t.id === info.technician?.id || takenIds.includes(t.id)) return false
+                                              // Only show technicians that are available on this date
+                                              // (if we have the availableTechnicianIds from the API)
+                                              if (info.availableTechnicianIds && info.availableTechnicianIds.length > 0) {
+                                                const techSquareId = t.squareTeamMemberId || t.id
+                                                return info.availableTechnicianIds.includes(techSquareId)
+                                              }
+                                              return true // Fallback: show all if no availability info
+                                            })
                                             .map(tech => (
                                               <option key={tech.id} value={tech.id}>{tech.name}</option>
                                             ))
                                           }
                                         </select>
                                       </div>
+                                      {info.availableTechnicianIds && info.availableTechnicianIds.length === 0 && (
+                                        <p className="text-xs text-amber-600 mt-1">
+                                          No other technicians available on this date
+                                        </p>
+                                      )}
                                     </div>
                                   )
                                 })}
@@ -370,33 +533,46 @@ export default function DateTimePage() {
                           {/* Or try a different date */}
                           <button
                             onClick={async () => {
+                              // Save tech names before clearing unavailableGuests
+                              setSearchedTechNames(unavailableTechNames)
                               setSearchingNextAvailable(true)
                               setUnavailableGuests([])
-                              const nextDate = await findNextAvailableDate(date)
-                              setNextAvailableDate(nextDate)
+                              const dates = await findNextAvailableDates(date, 3)
+                              setSuggestedDates(dates)
+                              setNextAvailableDate(dates.length > 0 ? dates[0].date : null)
+                              setSearchedNextDate(true)
                               setSearchingNextAvailable(false)
                             }}
                             className="w-full bg-white text-neutral-850 px-6 py-3 rounded-lg font-semibold border border-gray-200 hover:border-primary hover:text-primary transition-colors"
                           >
-                            Or Find Next Available Date
+                            {unavailableTechNames.length === 1
+                              ? `Find Dates for ${unavailableTechNames[0]}`
+                              : 'Find Available Dates'}
                           </button>
                         </div>
-                      ) : nextAvailableDate ? (
-                        <div className="text-center">
-                          <p className="text-gray-600 mb-4">
-                            No availability until <span className="font-semibold">{formatNextAvailableDate(nextAvailableDate)}</span>.
-                          </p>
+                      ) : availabilityMessage ? (
+                        <div className="text-center space-y-4">
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                            <p className="text-amber-800">{availabilityMessage}</p>
+                          </div>
                           <button
-                            onClick={handleGoToNextAvailable}
-                            className="w-full bg-neutral-850 text-white px-6 py-3 rounded-lg font-semibold hover:bg-neutral-900 transition-colors"
+                            onClick={async () => {
+                              setSearchingNextAvailable(true)
+                              const dates = await findNextAvailableDates(date, 3)
+                              setSuggestedDates(dates)
+                              setNextAvailableDate(dates.length > 0 ? dates[0].date : null)
+                              setSearchedNextDate(true)
+                              setSearchingNextAvailable(false)
+                            }}
+                            className="w-full bg-white text-neutral-850 px-6 py-3 rounded-lg font-semibold border border-gray-200 hover:border-primary hover:text-primary transition-colors"
                           >
-                            Go to next available
+                            Find Next Available Dates
                           </button>
                         </div>
                       ) : (
                         <div className="text-center space-y-4">
                           <p className="text-gray-600">
-                            No availability found in the next 14 days. Try a different date or change your technician selection.
+                            No availability found. Try a different date or change your technician selection.
                           </p>
                           <button
                             onClick={() => router.push('/services')}
@@ -412,10 +588,10 @@ export default function DateTimePage() {
               )}
 
               {/* Navigation */}
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-4">
                 <button
                   onClick={() => router.push('/review')}
-                  className="btn-outline"
+                  className="btn-outline w-full sm:w-auto"
                 >
                   Back
                 </button>
@@ -423,7 +599,7 @@ export default function DateTimePage() {
                 <button
                   onClick={handleContinue}
                   disabled={!date || !selectedSlot}
-                  className={`btn-primary ${
+                  className={`btn-primary w-full sm:w-auto ${
                     !date || !selectedSlot
                       ? 'opacity-50 cursor-not-allowed'
                       : ''

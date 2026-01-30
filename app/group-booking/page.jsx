@@ -15,6 +15,11 @@ function GroupBookingContent() {
 
   const groupSizes = [1, 2, 3, 4, 5, 6]
 
+  // Scroll to top on mount
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
+
   // Check for pre-selected service from URL
   useEffect(() => {
     const serviceId = searchParams.get('serviceId')

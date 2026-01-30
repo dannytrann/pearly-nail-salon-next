@@ -198,7 +198,8 @@ function parse12HourTime(timeStr) {
 }
 
 // Create booking in Square
-async function createSquareBooking(guest, selectedDate, selectedTime, contactInfo, excludeTechnicianIds = []) {
+// preAssignedTech: optional pre-validated technician for "Any Staff" guests (from pre-validation step)
+async function createSquareBooking(guest, selectedDate, selectedTime, contactInfo, excludeTechnicianIds = [], preAssignedTech = null) {
   try {
     const client = getSquareClient()
     const locationId = getLocationId()
@@ -257,19 +258,25 @@ async function createSquareBooking(guest, selectedDate, selectedTime, contactInf
     let teamMemberId = guest.technician?.squareTeamMemberId || guest.technician?.id
     let teamMemberName = null
 
-    // Handle "Any Staff" selection - auto-assign available technician
+    // Handle "Any Staff" selection - use pre-assigned tech if available, otherwise find one
     if (!teamMemberId || teamMemberId === 'any') {
-      // Extract service IDs for availability search
-      const serviceIds = guest.services.map(s => s.squareVariationId || s.id)
-      const availableTech = await findAvailableTechnician(
-        selectedDate,
-        selectedTime,
-        guest.totalDuration || 30,
-        excludeTechnicianIds,
-        serviceIds
-      )
-      teamMemberId = availableTech.id
-      teamMemberName = availableTech.name
+      if (preAssignedTech) {
+        // Use the pre-validated assignment from booking pre-check
+        teamMemberId = preAssignedTech.id
+        teamMemberName = preAssignedTech.name
+      } else {
+        // Fallback: find available technician (shouldn't happen with pre-validation)
+        const serviceIds = guest.services.map(s => s.squareVariationId || s.id)
+        const availableTech = await findAvailableTechnician(
+          selectedDate,
+          selectedTime,
+          guest.totalDuration || 30,
+          excludeTechnicianIds,
+          serviceIds
+        )
+        teamMemberId = availableTech.id
+        teamMemberName = availableTech.name
+      }
     }
 
     if (!teamMemberId) {
@@ -332,8 +339,19 @@ async function createSquareBooking(guest, selectedDate, selectedTime, contactInf
 export async function POST(request) {
   try {
     const bookingData = await request.json()
-    const { guests, selectedDate, selectedTime, contactInfo, groupSize } = bookingData
+    const { guests, selectedDate, selectedTime, contactInfo, groupSize, preAssignedTechnicians } = bookingData
     const useSquareBookings = process.env.USE_SQUARE_BOOKINGS === 'true'
+
+    // Build a map of pre-assigned technicians from the V2 availability endpoint
+    // Format: guestIndex -> technicianId
+    const preAssignedMap = new Map()
+    if (preAssignedTechnicians && Array.isArray(preAssignedTechnicians)) {
+      for (const assignment of preAssignedTechnicians) {
+        if (assignment.guestIndex !== undefined && assignment.technicianId) {
+          preAssignedMap.set(assignment.guestIndex, assignment.technicianId)
+        }
+      }
+    }
 
     // Log booking data
 
@@ -376,17 +394,61 @@ export async function POST(request) {
         }
       }
 
+      // PRE-VALIDATION: Ensure all "Any Staff" guests can be assigned BEFORE creating any bookings
+      // This prevents partial bookings (e.g., 2 of 3 created) when there aren't enough technicians
+      const preAssignedTechIds = new Set(assignedTechnicianIds)
+      const plannedAssignments = new Map() // guestIndex -> { id, name }
+
+      for (let i = 0; i < guests.length; i++) {
+        const guest = guests[i]
+        if (!guest.technician?.id || guest.technician.id === 'any') {
+          // Check if we have a pre-assigned technician from the V2 availability endpoint
+          const preAssignedTechId = preAssignedMap.get(i)
+          if (preAssignedTechId && !preAssignedTechIds.has(preAssignedTechId)) {
+            // Use the pre-computed assignment from the availability check
+            const techName = teamMemberNames.get(preAssignedTechId) || 'Staff Member'
+            plannedAssignments.set(i, { id: preAssignedTechId, name: techName })
+            preAssignedTechIds.add(preAssignedTechId)
+          } else {
+            // Fallback: find available technician dynamically
+            const serviceIds = guest.services.map(s => s.squareVariationId || s.id)
+            try {
+              const availableTech = await findAvailableTechnician(
+                selectedDate,
+                selectedTime,
+                guest.totalDuration || 30,
+                Array.from(preAssignedTechIds),
+                serviceIds
+              )
+              plannedAssignments.set(i, availableTech)
+              preAssignedTechIds.add(availableTech.id)
+            } catch (error) {
+              // Can't find a technician for this guest — fail before creating any bookings
+              return NextResponse.json({
+                success: false,
+                error: `Unable to find an available technician for ${guest.guestName || `Guest ${i + 1}`}. Please try a different time or change technician selections.`
+              }, { status: 400 })
+            }
+          }
+        }
+      }
+
       // Process each guest sequentially to ensure proper technician distribution
       const squareBookings = []
 
       for (let i = 0; i < guests.length; i++) {
         const guest = guests[i]
+
+        // Use pre-planned assignment for "Any Staff" guests to avoid re-querying
+        const preAssignedTech = plannedAssignments.get(i)
+
         const booking = await createSquareBooking(
           guest,
           selectedDate,
           selectedTime,
           contactInfo,
-          Array.from(assignedTechnicianIds)
+          Array.from(assignedTechnicianIds),
+          preAssignedTech // Pass pre-validated assignment
         )
         squareBookings.push(booking)
 

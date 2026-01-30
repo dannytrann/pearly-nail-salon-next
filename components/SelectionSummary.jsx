@@ -52,8 +52,8 @@ export default function SelectionSummary({
 
   return (
     <>
-      {/* Desktop Sidebar - Fixed on right side */}
-      {showDesktop && <div className="hidden lg:block fixed right-8 top-32 w-80 z-40">
+      {/* Desktop Sidebar - Fixed, positioned closer to content on wide screens */}
+      {showDesktop && <div className="hidden lg:block fixed right-8 xl:right-[max(2rem,calc(50vw-36rem))] top-32 w-80 z-40">
         <div className="bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
           {/* Header */}
           <div className="bg-gradient-to-r from-primary/10 to-secondary/10 px-5 py-4 border-b border-gray-100">

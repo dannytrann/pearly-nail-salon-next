@@ -15,7 +15,8 @@ export default function ContactPage() {
     selectedTime,
     contactInfo,
     setContactInfo,
-    setAssignedTechnicians
+    setAssignedTechnicians,
+    assignedTechnicians: preAssignedTechnicians
   } = useBookingStore()
 
   const [summaryExpanded, setSummaryExpanded] = useState(false)
@@ -31,6 +32,9 @@ export default function ContactPage() {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
+    // Scroll to top on mount
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+
     // Redirect if no bookings
     if (groupSize === 0 || guests.length === 0 || !selectedDate || !selectedTime) {
       router.push('/')
@@ -97,7 +101,8 @@ export default function ContactPage() {
           guests,
           selectedDate,
           selectedTime,
-          contactInfo: formData
+          contactInfo: formData,
+          preAssignedTechnicians // Pass pre-computed technician assignments from V2 availability
         })
       })
 
@@ -246,11 +251,11 @@ export default function ContactPage() {
             </div>
 
             {/* Navigation */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-4">
               <button
                 type="button"
                 onClick={() => router.push('/datetime')}
-                className="btn-outline"
+                className="btn-outline w-full sm:w-auto"
                 disabled={submitting}
               >
                 Back
@@ -259,7 +264,7 @@ export default function ContactPage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className={`btn-primary ${submitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`btn-primary w-full sm:w-auto ${submitting ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {submitting ? (
                   <span className="flex items-center gap-2">
