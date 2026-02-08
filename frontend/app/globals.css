@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=Montserrat:wght@300;400;500;600;700&display=swap');
+
+@layer base {
+  body {
+    @apply font-body text-neutral-750 bg-cream;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1 {
+    @apply font-heading text-neutral-850;
+    font-weight: 500;
+  }
+
+  h2, h3, h4, h5, h6 {
+    @apply font-body text-neutral-850;
+    font-weight: 600;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary hover:bg-primary-dark text-white font-medium py-3 px-8 rounded-full transition-all duration-300 tracking-wide;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary hover:bg-secondary-dark text-white font-medium py-3 px-8 rounded-full transition-all duration-300 tracking-wide;
+  }
+
+  .btn-outline {
+    @apply border border-mist hover:border-primary hover:text-primary text-neutral-750 font-medium py-3 px-8 rounded-full transition-all duration-300 tracking-wide;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl shadow-sm p-6 transition-all duration-300 hover:shadow-md border border-mist/50;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 border border-mist rounded-xl focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition-all duration-300 bg-white;
+  }
+}
+
+@layer utilities {
+  .container-custom {
+    @apply max-w-6xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+}
