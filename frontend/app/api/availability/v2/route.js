@@ -48,10 +48,13 @@ function getBusinessHoursForDate(date) {
  * Get Pacific timezone offset for a date
  */
 function getPacificOffset(date) {
-  const dateObj = new Date(date + 'T12:00:00Z')
-  const month = dateObj.getUTCMonth()
-  const isPDT = month >= 2 && month <= 9
-  return isPDT ? '-07:00' : '-08:00'
+  const ref = new Date(`${date}T12:00:00Z`)
+  const pacificHour = parseInt(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/Vancouver', hour: 'numeric', hour12: false }).format(ref),
+    10
+  )
+  const offsetHours = pacificHour - 12
+  return `${offsetHours < 0 ? '-' : '+'}${String(Math.abs(offsetHours)).padStart(2, '0')}:00`
 }
 
 /**
