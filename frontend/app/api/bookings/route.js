@@ -2,6 +2,16 @@ import { NextResponse } from 'next/server'
 import { getSquareClient, getLocationId } from '@/lib/squareClient'
 import { randomUUID } from 'crypto'
 
+function getPacificOffset(date) {
+  const ref = new Date(`${date}T12:00:00Z`)
+  const pacificHour = parseInt(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/Vancouver', hour: 'numeric', hour12: false }).format(ref),
+    10
+  )
+  const offsetHours = pacificHour - 12
+  return `${offsetHours < 0 ? '-' : '+'}${String(Math.abs(offsetHours)).padStart(2, '0')}:00`
+}
+
 // Find an available technician for the given time slot
 // Uses Square's searchAvailability (with 1-hour window) to find who's actually working,
 // then picks an available technician not in the exclude list
@@ -11,10 +21,7 @@ async function findAvailableTechnician(selectedDate, selectedTime, duration, exc
     const locationId = getLocationId()
 
     // Comox, BC is in Pacific Time
-    const dateObj = new Date(selectedDate + 'T12:00:00Z')
-    const month = dateObj.getUTCMonth()
-    const isPDT = month >= 2 && month <= 9
-    const tzOffset = isPDT ? '-07:00' : '-08:00'
+    const tzOffset = getPacificOffset(selectedDate)
 
     // Parse the selected time into a proper Pacific timezone Date
     let hours, mins
@@ -205,10 +212,7 @@ async function createSquareBooking(guest, selectedDate, selectedTime, contactInf
     const locationId = getLocationId()
 
     // Combine date and time in Pacific timezone
-    const dateObj = new Date(selectedDate + 'T12:00:00Z')
-    const month = dateObj.getUTCMonth()
-    const isPDT = month >= 2 && month <= 9
-    const tzOffset = isPDT ? '-07:00' : '-08:00'
+    const tzOffset = getPacificOffset(selectedDate)
 
     let hours, minutes
     if (selectedTime.includes('AM') || selectedTime.includes('PM')) {

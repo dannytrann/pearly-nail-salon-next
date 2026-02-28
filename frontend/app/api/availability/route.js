@@ -70,10 +70,13 @@ function isoToDisplaySlot(isoString) {
 
 // Get Pacific timezone offset for a given date
 function getPacificOffset(date) {
-  const dateObj = new Date(date + 'T12:00:00Z')
-  const month = dateObj.getUTCMonth() // 0-11
-  const isPDT = month >= 2 && month <= 9 // March through October (rough DST)
-  return isPDT ? '-07:00' : '-08:00'
+  const ref = new Date(`${date}T12:00:00Z`)
+  const pacificHour = parseInt(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/Vancouver', hour: 'numeric', hour12: false }).format(ref),
+    10
+  )
+  const offsetHours = pacificHour - 12
+  return `${offsetHours < 0 ? '-' : '+'}${String(Math.abs(offsetHours)).padStart(2, '0')}:00`
 }
 
 // Query availability for MULTIPLE services on a SINGLE day.
