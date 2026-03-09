@@ -3,6 +3,15 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
+// Human-readable display names for categories
+const categoryDisplayNames = {
+  "Manicure (hands)": "Manicure",
+  "Pedicure (Feet)": "Pedicure",
+  "Kid's (12 yrs old n' Under)": "Kids' Services",
+  "Waxing": "Waxing",
+  "Other Services": "Other Services",
+}
+
 // Category icons mapping
 const categoryIcons = {
   "Kid's (12 yrs old n' Under)": (
@@ -149,7 +158,7 @@ export default function ServiceMenu() {
                   </div>
                   <div className="flex-1">
                     <h2 className="text-2xl font-heading tracking-wide">
-                      {categoryName}
+                      {categoryDisplayNames[categoryName] || categoryName}
                     </h2>
                     <div className="mt-2 h-0.5 bg-gradient-to-r from-primary/30 via-secondary/30 to-transparent rounded-full"></div>
                   </div>
@@ -188,23 +197,6 @@ export default function ServiceMenu() {
             </div>
             <p className="text-warmgray-light text-sm tracking-wide mb-6">Ready to treat yourself?</p>
             <div className="flex flex-col gap-3 items-center">
-              {/* My Bookings Button */}
-              <a
-                href="https://book.squareup.com/appointments/jigdrgfr2q4j72/location/L09XRHHBTG8ZV/bookings"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group relative inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-full border border-mist bg-white/80 text-neutral-750 hover:bg-primary/5 hover:border-primary/40 transition-all duration-300 text-sm font-medium tracking-wide"
-              >
-                <svg className="w-4 h-4 text-secondary group-hover:text-primary transition-colors duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span className="group-hover:text-primary transition-colors duration-300">My Bookings</span>
-                <svg className="w-3 h-3 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </a>
-
-              {/* Book Your Appointment Button */}
               <Link
                 href="/group-booking"
                 className="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white px-10 py-4 rounded-full font-medium transition-all duration-300 text-sm tracking-wide shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/25 hover:-translate-y-0.5"
@@ -214,6 +206,9 @@ export default function ServiceMenu() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
               </Link>
+              <a href="tel:+12509417870" className="text-sm text-warmgray-light hover:text-primary transition-colors tracking-wide">
+                or call (250) 941-7870
+              </a>
             </div>
           </div>
         </div>

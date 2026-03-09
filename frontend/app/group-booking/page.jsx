@@ -12,6 +12,9 @@ function GroupBookingContent() {
   const setPreSelectedService = useBookingStore((state) => state.setPreSelectedService)
 
   const [preSelectedServiceName, setPreSelectedServiceName] = useState(null)
+  const [showCustomInput, setShowCustomInput] = useState(false)
+  const [customSizeInput, setCustomSizeInput] = useState('')
+  const [customSizeError, setCustomSizeError] = useState('')
 
   const groupSizes = [1, 2, 3, 4, 5, 6]
 
@@ -48,6 +51,15 @@ function GroupBookingContent() {
     router.push('/services')
   }
 
+  const handleCustomSizeSubmit = () => {
+    const size = parseInt(customSizeInput)
+    if (!customSizeInput || isNaN(size) || size < 7) {
+      setCustomSizeError('Please enter a number of 7 or more')
+      return
+    }
+    handleGroupSizeSelect(size)
+  }
+
   return (
     <div className="bg-cream min-h-screen">
       {/* Back Link */}
@@ -64,9 +76,11 @@ function GroupBookingContent() {
 
       <div className="container-custom py-16">
         <div className="max-w-3xl mx-auto text-center">
+            <p className="text-secondary font-medium text-xs tracking-[0.3em] uppercase mb-3">Step 1 of 5</p>
           <h1 className="text-3xl md:text-4xl font-heading tracking-wide mb-4">
-            Booking: How many people will be joining you today?
+            How many people?
           </h1>
+          <p className="text-warmgray-light text-sm mb-6">Select the number of guests joining your appointment</p>
 
           {preSelectedServiceName && (
             <div className="mb-10 inline-flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-full text-sm">
@@ -96,12 +110,7 @@ function GroupBookingContent() {
             ))}
 
             <button
-              onClick={() => {
-                const customSize = prompt('Enter number of people (7+):')
-                if (customSize && !isNaN(customSize) && parseInt(customSize) > 0) {
-                  handleGroupSizeSelect(parseInt(customSize))
-                }
-              }}
+              onClick={() => { setShowCustomInput(true); setCustomSizeError('') }}
               className="group relative bg-white hover:bg-primary border border-mist/60 hover:border-primary rounded-xl p-8 transition-all duration-300 hover:shadow-lg"
             >
               <div className="text-5xl font-heading text-neutral-850 group-hover:text-white transition-colors duration-300">
@@ -112,6 +121,36 @@ function GroupBookingContent() {
               </div>
             </button>
           </div>
+
+          {/* Custom size input — appears inline when 7+ is clicked */}
+          {showCustomInput && (
+            <div className="mt-6 bg-white rounded-xl border border-mist/60 p-5 max-w-xs mx-auto">
+              <p className="text-sm font-medium text-neutral-850 mb-3 text-center">Enter number of guests</p>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="7"
+                  placeholder="e.g. 8"
+                  value={customSizeInput}
+                  onChange={(e) => { setCustomSizeInput(e.target.value); setCustomSizeError('') }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCustomSizeSubmit()}
+                  className="input-field text-center"
+                  autoFocus
+                />
+                <button
+                  onClick={handleCustomSizeSubmit}
+                  className="bg-primary hover:bg-primary-dark text-white px-4 rounded-xl transition-colors duration-200 flex-shrink-0"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+              {customSizeError && (
+                <p className="text-red-500 text-xs mt-2 text-center">{customSizeError}</p>
+              )}
+            </div>
+          )}
 
           <div className="mt-16 bg-cream-deep/60 rounded-xl p-8 border border-mist/40">
             <h3 className="font-heading text-xl mb-4 tracking-wide">
